@@ -1,0 +1,22 @@
+name: BitcoinPrice
+version: '${project.version}'
+main: me.martingeltl.bitcoin.BitcoinPrice
+api-version: '1.21'
+author: Martin Geltl
+description: Ein Plugin, das den aktuellen Bitcoin-Preis von der CoinGecko API abruft
+website: https://github.com/martingeltl/bitcoinprice
+
+commands:
+  btc:
+    description: Zeigt das Hauptmenü oder die aktuellen Einstellungen
+    usage: /<command>
+  btchelp:
+    description: Zeigt Hilfe und erklärt alle Befehle
+    usage: /<command>
+    aliases: [btc help]
+  btceur:
+    description: Zeigt den aktuellen Bitcoin-Preis in Euro
+    usage: /<command>
+  btcusd:
+    description: Zeigt den aktuellen Bitcoin-Preis in US-Dollar
+    usage: /<command> 

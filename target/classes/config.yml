@@ -1,0 +1,25 @@
+# BitcoinPrice Plugin Konfiguration
+
+# Das Intervall, in dem der Bitcoin-Preis automatisch im Chat angezeigt wird
+# Mögliche Werte: 1, 5, 10, 30, 60 (in Minuten)
+price-interval: 10
+
+# Die Währung, in der der Bitcoin-Preis angezeigt wird
+# Mögliche Werte: EUR, USD, BOTH
+price-currency: EUR
+
+# Einstellungen für die CoinGecko API
+api:
+  # Die URL der CoinGecko API
+  url: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur,usd&precision=2"
+  # Timeout in Millisekunden
+  timeout: 10000
+
+# Nachrichteneinstellungen
+messages:
+  # Präfix vor jeder Nachricht
+  prefix: "&6[BitcoinPrice] &r"
+  # Farbe des Bitcoin-Preises
+  price-color: "&6"
+  # Meldung bei API-Fehler
+  api-error: "&cFehler beim Abrufen des Bitcoin-Preises. Bitte versuche es später erneut." 

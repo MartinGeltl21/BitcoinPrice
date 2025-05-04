@@ -1,0 +1,8 @@
+me\martingeltl\bitcoin\BitcoinPrice.class
+me\martingeltl\bitcoin\commands\BTCHelpCommand.class
+me\martingeltl\bitcoin\config\ConfigManager.class
+me\martingeltl\bitcoin\commands\BTCUSDCommand.class
+me\martingeltl\bitcoin\commands\BTCCommand.class
+me\martingeltl\bitcoin\commands\BTCEURCommand.class
+me\martingeltl\bitcoin\scheduler\PriceScheduler.class
+me\martingeltl\bitcoin\api\CoinGeckoService.class
