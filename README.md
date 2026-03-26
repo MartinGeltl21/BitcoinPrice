@@ -14,7 +14,7 @@ Ein Minecraft-Plugin für Paper-Server, das den aktuellen Bitcoin-Kurs über die
 
 ## Anforderungen
 
-- Minecraft 1.21.5
+- Minecraft 1.21.11
 - Paper Server oder einen kompatiblen Fork (Purpur, etc.)
 - Java 17 oder höher
 
