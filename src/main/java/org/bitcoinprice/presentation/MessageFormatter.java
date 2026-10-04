@@ -30,7 +30,19 @@ public final class MessageFormatter {
         sender.sendMessage(component(plugin.getConfigManager().getMessagePrefix() + text));
     }
     public void error(CommandSender sender, String text) { send(sender, "&c" + text); }
-    public void apiError(CommandSender sender) { send(sender, plugin.getConfigManager().getApiErrorMessage()); }
+    public void error(CommandSender sender, IllegalArgumentException error) {
+        error(sender, error instanceof MessageException translated ? translated.text(language(sender)) : error.getMessage());
+    }
+    public String text(CommandSender sender, String key, Object... arguments) { return language(sender).text(key, arguments); }
+    public Language language(CommandSender sender) {
+        if (sender instanceof Player player) {
+            String selected = plugin.getPreferences().get(player.getUniqueId()).language();
+            return Language.resolve(selected, player.locale(), plugin.getConfigManager().getLanguage(),
+                    plugin.getConfigManager().isLanguageAutoDetect());
+        }
+        return plugin.getConfigManager().getLanguage();
+    }
+    public void apiError(CommandSender sender) { send(sender, plugin.getConfigManager().getTemplate("api-error", language(sender))); }
     public Locale locale(CommandSender sender) {
         if (sender instanceof Player player) {
             String language = plugin.getPreferences().get(player.getUniqueId()).locale();
@@ -52,15 +64,21 @@ public final class MessageFormatter {
         return format.format(value);
     }
     public static String money(BigDecimal value, Locale locale, String currency) {
-        if (!CurrencyCatalog.isSupported(currency)) throw new IllegalArgumentException("Unbekannte Währung: " + currency);
+        if (!CurrencyCatalog.isSupported(currency)) throw new MessageException("error.currency", String.join(", ", CurrencyCatalog.codes()));
         return number(value, locale, Math.max(0, Currency.getInstance(currency.toUpperCase(Locale.ROOT)).getDefaultFractionDigits()));
     }
     /** A missing optional provider currency remains explicit, never falls back to another currency's price. */
     public static String selectedPrice(PriceSnapshot snapshot, String currency, Locale locale) {
-        return snapshot.supports(currency) ? money(snapshot.price(currency), locale, currency) : "nicht verfügbar";
+        return selectedPrice(snapshot, currency, locale, Language.GERMAN);
+    }
+    public static String selectedPrice(PriceSnapshot snapshot, String currency, Locale locale, Language language) {
+        return snapshot.supports(currency) ? money(snapshot.price(currency), locale, currency) : language.text("unavailable");
     }
     public static String age(Instant timestamp) {
-        if (timestamp == null) return "unbekannt";
+        return age(timestamp, Language.GERMAN);
+    }
+    public static String age(Instant timestamp, Language language) {
+        if (timestamp == null) return language.text("unknown");
         long seconds = Math.max(0, Duration.between(timestamp, Instant.now()).getSeconds());
         return seconds < 60 ? seconds + "s" : seconds < 3600 ? seconds / 60 + "min" : seconds / 3600 + "h";
     }
@@ -71,42 +89,63 @@ public final class MessageFormatter {
                 && !snapshot.fetchedAt().isBefore(now.minusSeconds(settings.cacheSeconds()));
     }
     public Component quote(String template, PriceQuote quote, String currency, Locale locale) {
-        return format(template, quote, currency, locale, null);
+        return quote(template, quote, currency, locale, plugin.getConfigManager().getLanguage());
+    }
+    public Component quote(String template, PriceQuote quote, String currency, Locale locale, Language language) {
+        return format(template, quote, currency, locale, language, null);
     }
     public Component alert(PriceQuote quote, PriceAlert alert, Locale locale) {
-        return format("alert", quote, alert.currency(), locale, alert);
+        return alert(quote, alert, locale, plugin.getConfigManager().getLanguage());
     }
-    private Component format(String template, PriceQuote quote, String currency, Locale locale, PriceAlert alert) {
+    public Component alert(PriceQuote quote, PriceAlert alert, Locale locale, Language language) {
+        return format("alert", quote, alert.currency(), locale, language, alert);
+    }
+    public Component actionbar(Player player, PriceQuote quote) {
+        return quote(plugin.getPreferences().get(player.getUniqueId()).actionbarContent().template(), quote,
+                currency(player), locale(player), language(player));
+    }
+    private Component format(String template, PriceQuote quote, String currency, Locale locale, Language language, PriceAlert alert) {
+        String text = render(plugin.getConfigManager().getTemplate(template, language), quote, currency, locale, language,
+                plugin.getConfigManager().getPriceColor(), plugin.getConfigManager().getApiSettings(), Instant.now(), alert);
+        return component((template.equals("board") || template.startsWith("actionbar") ? "" : plugin.getConfigManager().getMessagePrefix()) + text);
+    }
+    /** Renders the same quote for chat, actionbar, boards and alerts using an explicit text language. */
+    public static String render(String template, PriceQuote quote, String currency, Locale locale, Language language,
+                                String color, ApiSettings settings, Instant now, PriceAlert alert) {
         PriceSnapshot snapshot = quote.snapshot();
-        String color = plugin.getConfigManager().getPriceColor();
         currency = currency.toUpperCase(Locale.ROOT);
-        if (!CurrencyCatalog.isSelection(currency, false)) throw new IllegalArgumentException("Unbekannte Währung: " + currency);
-        String eur = color + selectedPrice(snapshot, "EUR", locale) + "&r";
-        String usd = color + selectedPrice(snapshot, "USD", locale) + "&r";
-        String price = currency.equals("BOTH") ? eur + " EUR / " + usd + " USD" : color + selectedPrice(snapshot, currency, locale) + "&r";
+        if (!CurrencyCatalog.isSelection(currency, false)) throw new MessageException("error.currency", String.join(", ", CurrencyCatalog.selectionCodes(false)));
+        String eur = color + selectedPrice(snapshot, "EUR", locale, language) + "&r";
+        String usd = color + selectedPrice(snapshot, "USD", locale, language) + "&r";
+        String price = currency.equals("BOTH") ? eur + " EUR / " + usd + " USD" : color + selectedPrice(snapshot, currency, locale, language) + "&r";
         String change = currency.equals("BOTH")
-                ? "EUR " + change(snapshot.supports("EUR") ? snapshot.change24h("EUR") : null, locale)
-                    + " / USD " + change(snapshot.supports("USD") ? snapshot.change24h("USD") : null, locale)
-                : change(snapshot.supports(currency) ? snapshot.change24h(currency) : null, locale);
-        String text = plugin.getConfigManager().getTemplate(template)
+                ? "EUR " + change(snapshot.supports("EUR") ? snapshot.change24h("EUR") : null, locale, language)
+                    + " / USD " + change(snapshot.supports("USD") ? snapshot.change24h("USD") : null, locale, language)
+                : change(snapshot.supports(currency) ? snapshot.change24h(currency) : null, locale, language);
+        boolean fresh = !quote.stale() && isFresh(snapshot, settings, now);
+        String status = snapshot.providerUpdatedAt() == null ? "&e" + language.text("status.unknown")
+                : fresh ? "&a" + language.text("status.fresh") : "&c" + language.text("status.stale");
+        String text = template
                 .replace("{eur}", eur).replace("{usd}", usd).replace("{price}", price)
                 .replace("{currency}", currency.equals("BOTH") ? "" : currency).replace("{change}", change)
-                .replace("{age}", age(snapshot.fetchedAt())).replace("{provider_age}", age(snapshot.providerUpdatedAt()))
-                .replace("{status}", snapshot.providerUpdatedAt() == null ? "&eKursstand unbekannt"
-                        : quote.stale() || !isFresh(snapshot, plugin.getConfigManager().getApiSettings(), Instant.now()) ? "&cveraltet" : "&aaktuell")
+                .replace("{age}", age(snapshot.fetchedAt(), language)).replace("{provider_age}", age(snapshot.providerUpdatedAt(), language))
+                .replace("{status}", status).replace("{warning}", fresh ? "" : " &7| " + status)
                 .replace("{threshold}", alert == null ? "" : money(alert.threshold(), locale, alert.currency()))
-                .replace("{direction}", alert == null ? "" : alert.direction().name().equals("ABOVE") ? "oberhalb" : "unterhalb")
+                .replace("{direction}", alert == null ? "" : language.text(alert.direction().name().equals("ABOVE") ? "above" : "below"))
                 .replace("{id}", alert == null ? "" : alert.id().toString().substring(0, 8));
         for (String code : CurrencyCatalog.codes())
-            text = text.replace("{" + code.toLowerCase(Locale.ROOT) + "}", color + selectedPrice(snapshot, code, locale) + "&r");
-        return component((template.equals("board") || template.equals("actionbar") ? "" : plugin.getConfigManager().getMessagePrefix()) + text);
+            text = text.replace("{" + code.toLowerCase(Locale.ROOT) + "}", color + selectedPrice(snapshot, code, locale, language) + "&r");
+        return text;
     }
-    private static String change(BigDecimal value, Locale locale) {
-        return value == null ? "unbekannt" : (value.signum() >= 0 ? "+" : "") + number(value, locale, 2) + "%";
+    private static String change(BigDecimal value, Locale locale, Language language) {
+        return value == null ? language.text("unknown") : (value.signum() >= 0 ? "+" : "") + number(value, locale, 2) + "%";
     }
     /** A bounded chart with uniformly spaced bins; gaps stay visible rather than inventing prices. */
     public static String chart(List<PriceSnapshot> samples, String currency, Duration period, Instant now) {
-        if (samples.isEmpty()) return "(noch keine Kursdaten)";
+        return chart(samples, currency, period, now, Language.GERMAN);
+    }
+    public static String chart(List<PriceSnapshot> samples, String currency, Duration period, Instant now, Language language) {
+        if (samples.isEmpty()) return language.text("history.empty.chart");
         int width = 32;
         BigDecimal[] bins = new BigDecimal[width];
         long total = period.toMillis();

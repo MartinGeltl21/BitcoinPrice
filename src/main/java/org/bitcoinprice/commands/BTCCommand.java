@@ -6,10 +6,14 @@ import org.bitcoinprice.model.PriceSnapshot;
 import org.bitcoinprice.model.CurrencyCatalog;
 import org.bitcoinprice.preferences.AlertDirection;
 import org.bitcoinprice.preferences.ActionbarMode;
+import org.bitcoinprice.preferences.ActionbarContent;
 import org.bitcoinprice.preferences.DisplayMode;
 import org.bitcoinprice.preferences.PortfolioBalance;
 import org.bitcoinprice.preferences.Preferences;
 import org.bitcoinprice.presentation.MessageFormatter;
+import org.bitcoinprice.presentation.Language;
+import org.bitcoinprice.presentation.MessageException;
+import org.bitcoinprice.presentation.ServiceDiagnostics;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -42,6 +46,8 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
     private static final Map<String, Duration> PERIODS = Map.of("1h", Duration.ofHours(1), "6h", Duration.ofHours(6), "24h", Duration.ofHours(24), "7d", Duration.ofDays(7));
     public BTCCommand(BitcoinPrice plugin) { this.plugin = plugin; }
     private MessageFormatter messages() { return plugin.getMessages(); }
+    private String text(CommandSender sender, String key, Object... args) { return messages().text(sender, key, args); }
+    private static MessageException failure(String key, Object... args) { return new MessageException(key, args); }
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!allowed(sender)) return true;
         try {
@@ -50,7 +56,7 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             switch (sub) {
                 case "price" -> { exact(args, 1); showPrice(sender, null); }
                 case "help" -> {
-                    if (args.length > 2) throw usage("Verwendung: /btc help [Seite] oder /btchelp [Seite]");
+                    if (args.length > 2) throw failure("error.help.usage");
                     showHelp(sender, args.length == 1 ? "1" : args[1]);
                 }
                 case "interval" -> interval(sender, args);
@@ -58,18 +64,22 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
                 case "player" -> targetSettings(sender, args);
                 case "global" -> {
                     exact(args, 3); admin(sender);
-                    if (!args[1].equalsIgnoreCase("currency")) throw usage("/btc global currency <Währung|BOTH>");
-                    setGlobalCurrency(sender, args[2]);
+                    if (args[1].equalsIgnoreCase("currency")) setGlobalCurrency(sender, args[2]);
+                    else if (args[1].equalsIgnoreCase("language")) {
+                        plugin.getConfigManager().setLanguage(args[2]);
+                        plugin.getApiService().cachedQuote().ifPresentOrElse(plugin.getBoards()::update, plugin.getBoards()::showUnavailable);
+                        messages().send(sender, text(sender, plugin.getConfigManager().isLanguageAutoDetect() ? "language.global.auto" : "language.global", plugin.getConfigManager().getLanguage().code()));
+                    } else throw usage("/btc global currency <CODE|BOTH> | language de|en|AUTO");
                 }
                 case "refresh" -> {
                     exact(args, 1); admin(sender);
                     request(sender, true, quote -> {
                         if (quote.stale()) {
-                            messages().send(sender, "Kein aktueller Kurs verfügbar; der letzte gespeicherte Kurs ist veraltet. Keine Aktualisierung gesendet.");
+                            messages().send(sender, text(sender, "refresh.stale"));
                             return;
                         }
                         plugin.getScheduler().broadcastQuote(quote);
-                        messages().send(sender, "Kurs aktualisiert; globale Chatnachrichten beachten die gespeicherten Einstellungen.");
+                        messages().send(sender, text(sender, "refresh.done"));
                     });
                 }
                 case "on", "off" -> notifications(sender, args, sub.equals("on"));
@@ -79,56 +89,62 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
                     exact(args, 2); Player player = player(sender);
                     String locale = args[1].equalsIgnoreCase("DEFAULT") ? "DEFAULT" : args[1];
                     plugin.getPreferences().setLocale(player.getUniqueId(), locale);
-                    messages().send(sender, "Sprache/Zahlenformat: " + locale);
+                    messages().send(sender, text(sender, "locale.changed", locale));
+                }
+                case "language" -> {
+                    exact(args, 2); Player player = player(sender);
+                    plugin.getPreferences().setLanguage(player.getUniqueId(), args[1]);
+                    plugin.getScheduler().resetActionbar(player);
+                    messages().send(sender, text(sender, "language.changed", languageDescription(sender, player.getUniqueId())));
                 }
                 case "display" -> {
                     Player player = player(sender);
-                    display(sender, player.getUniqueId(), player, "Deine Anzeige", args, 1);
+                    display(sender, player.getUniqueId(), player, text(sender, "label.display"), args, 1);
                 }
                 case "alert" -> alert(sender, args);
                 case "sats" -> sats(sender, args);
                 case "board" -> board(sender, args);
                 case "history" -> history(sender, args);
                 case "portfolio" -> portfolio(sender, args);
-                default -> throw usage("Unbekannter Befehl. /btc help zeigt alle Befehle.");
+                default -> throw failure("error.command");
             }
-        } catch (IllegalArgumentException ex) { messages().error(sender, ex.getMessage()); }
+        } catch (IllegalArgumentException ex) { messages().error(sender, ex); }
         return true;
     }
-    private static IllegalArgumentException usage(String text) { return new IllegalArgumentException(text); }
+    private static IllegalArgumentException usage(String text) { return failure("usage", text); }
     private boolean allowed(CommandSender sender) {
         if (sender.isOp() || sender.hasPermission("bitcoinprice.use")) return true;
-        messages().error(sender, "Dafür fehlt dir bitcoinprice.use."); return false;
+        messages().error(sender, text(sender, "error.permission")); return false;
     }
-    private static void exact(String[] args, int size) { if (args.length != size) throw usage("Ungültige Argumente. Hilfe: /btc help"); }
+    private static void exact(String[] args, int size) { if (args.length != size) throw failure("error.arguments"); }
     private static Player player(CommandSender sender) {
-        if (!(sender instanceof Player player)) throw usage("Dieser Befehl benötigt einen Spieler.");
+        if (!(sender instanceof Player player)) throw failure("error.player");
         return player;
     }
     private static boolean isAdmin(CommandSender sender) { return sender.isOp() || sender.hasPermission("bitcoinprice.admin"); }
-    private static void admin(CommandSender sender) { if (!isAdmin(sender)) throw usage("Dieser Befehl benötigt OP oder bitcoinprice.admin."); }
+    private static void admin(CommandSender sender) { if (!isAdmin(sender)) throw failure("error.admin"); }
     private static String coinCurrency(String raw) {
         String currency = raw.toUpperCase(Locale.ROOT);
-        if (!CurrencyCatalog.isSupported(currency)) throw usage("Erlaubte Währungen: " + String.join(", ", CurrencyCatalog.codes()) + ".");
+        if (!CurrencyCatalog.isSupported(currency)) throw failure("error.currency", String.join(", ", CurrencyCatalog.codes()));
         return currency;
     }
     public static BigDecimal positiveAmount(String raw) {
-        if (raw.length() > 32 || !raw.matches("[0-9]+(?:\\.[0-9]+)?")) throw usage("Bitte eine positive Zahl mit Dezimalpunkt angeben (z. B. 10.50).");
+        if (raw.length() > 32 || !raw.matches("[0-9]+(?:\\.[0-9]+)?")) throw failure("error.amount.format");
         BigDecimal amount = new BigDecimal(raw);
         if (amount.signum() <= 0 || amount.scale() > 8 || amount.compareTo(new BigDecimal("1000000000000")) > 0)
-            throw usage("Betrag muss positiv, höchstens 1 Billion und auf 8 Nachkommastellen begrenzt sein.");
+            throw failure("error.amount.bounds");
         return amount;
     }
     public void showPrice(CommandSender sender, String currencyOverride) {
         if (!allowed(sender)) return;
         request(sender, false, quote -> sender.sendMessage(messages().quote("price", quote,
-                currencyOverride == null ? messages().currency(sender) : currencyOverride, messages().locale(sender))));
+                currencyOverride == null ? messages().currency(sender) : currencyOverride, messages().locale(sender), messages().language(sender))));
     }
     /** Bound callback demand per user; all UI and balance changes stay on the main thread. */
     private void request(CommandSender sender, boolean force, Consumer<PriceQuote> success) {
         UUID id = sender instanceof Player player ? player.getUniqueId() : null;
         if (id == null ? pendingConsole : !pendingPlayers.add(id)) {
-            messages().send(sender, "Eine Kursabfrage läuft bereits."); return;
+            messages().send(sender, text(sender, "request.pending")); return;
         }
         if (id == null) pendingConsole = true;
         CompletableFuture<PriceQuote> future = force ? plugin.getApiService().forceRefresh() : plugin.getApiService().fetchBitcoinPrice();
@@ -139,87 +155,99 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             PriceQuote currentQuote = new PriceQuote(quote.snapshot(), quote.stale()
                     || !MessageFormatter.isFresh(quote.snapshot(), plugin.getConfigManager().getApiSettings(), Instant.now()));
             try { success.accept(currentQuote); }
-            catch (IllegalArgumentException ex) { messages().error(sender, ex.getMessage()); }
+            catch (IllegalArgumentException ex) { messages().error(sender, ex); }
         }));
     }
     private void interval(CommandSender sender, String[] args) {
-        if (args.length == 1) { messages().send(sender, "Chat-Intervall / Actionbar-DEFAULT: " + plugin.getConfigManager().getPriceInterval() + " Minuten"); return; }
+        if (args.length == 1) { messages().send(sender, text(sender, "interval.current", plugin.getConfigManager().getPriceInterval())); return; }
         exact(args, 2); admin(sender);
         int value;
         try { value = Integer.parseInt(args[1]); } catch (NumberFormatException ex) { throw usage("/btc interval 1|5|10|30|60"); }
-        if (!plugin.getConfigManager().setPriceInterval(value)) throw usage("Erlaubte Intervalle: 1, 5, 10, 30, 60 Minuten.");
+        if (!plugin.getConfigManager().setPriceInterval(value)) throw failure("error.interval");
         plugin.getScheduler().updateSchedulerInterval(value);
-        messages().send(sender, "Chat-Intervall / Actionbar-DEFAULT: " + value + " Minuten. Eigene Actionbar-Intervalle bleiben erhalten.");
+        messages().send(sender, text(sender, "interval.changed", value));
     }
     private void currency(CommandSender sender, String[] args) {
-        if (args.length == 1) { messages().send(sender, "Währung: " + messages().currency(sender)); return; }
+        if (args.length == 1) { messages().send(sender, text(sender, "currency.current", messages().currency(sender))); return; }
         exact(args, 2);
         if (!(sender instanceof Player player)) { admin(sender); setGlobalCurrency(sender, args[1]); return; }
         String value = args[1].toUpperCase(Locale.ROOT);
         plugin.getPreferences().setCurrency(player.getUniqueId(), value);
-        messages().send(sender, "Deine Währung: " + value);
+        messages().send(sender, text(sender, "currency.changed", value));
     }
     private void setGlobalCurrency(CommandSender sender, String raw) {
         String value = raw.toUpperCase(Locale.ROOT);
-        if (!plugin.getConfigManager().setPriceCurrency(value)) throw usage("Erlaubte globale Währungen: " + String.join(", ", CurrencyCatalog.selectionCodes(false)) + ".");
-        messages().send(sender, "Globale Währung: " + value);
+        if (!plugin.getConfigManager().setPriceCurrency(value)) throw failure("error.currency", String.join(", ", CurrencyCatalog.selectionCodes(false)));
+        messages().send(sender, text(sender, "currency.global", value));
     }
     private void notifications(CommandSender sender, String[] args, boolean on) {
         if (args.length == 2 && args[1].equalsIgnoreCase("all")) {
             admin(sender); plugin.getConfigManager().setBroadcastsEnabled(on);
-            messages().send(sender, "Globale Chatnachrichten: " + (on ? "an" : "aus"));
+            messages().send(sender, text(sender, "notifications.global", text(sender, on ? "on" : "off")));
         } else {
             exact(args, 1); Player player = player(sender);
             boolean changed = plugin.getPreferences().get(player.getUniqueId()).notifications() != on;
             plugin.getPreferences().setNotifications(player.getUniqueId(), on);
             if (changed) plugin.getScheduler().resetActionbar(player);
-            messages().send(sender, "Deine Kursnachrichten: " + (on ? "an" : "aus") + ". Preisalarme verwaltest du separat mit /btc alert."
-                    + inactiveHint(player.getUniqueId(), "/btc"));
+            messages().send(sender, text(sender, "notifications.changed", text(sender, on ? "on" : "off"))
+                    + inactiveHint(sender, player.getUniqueId(), "/btc"));
         }
     }
     private void settings(CommandSender sender) {
-        showSettings(sender, player(sender).getUniqueId(), "Deine Einstellungen");
+        showSettings(sender, player(sender).getUniqueId(), text(sender, "label.settings"));
     }
     private void status(CommandSender sender) {
         var status = plugin.getApiService().status();
-        String cache = status.quote().map(quote -> "Abruf vor " + MessageFormatter.age(quote.snapshot().fetchedAt())
-                + " | Kursstand vor " + MessageFormatter.age(quote.snapshot().providerUpdatedAt())
-                + " | " + (quote.stale() ? "veraltet" : "aktuell")).orElse("kein verwendbarer Kurs");
-        messages().send(sender, "Kurscache: " + cache);
-        messages().send(sender, "Kursabfrage: " + (status.requestInFlight() ? "läuft" : "ruht")
-                + " | API-Wartezeit: " + status.retryAfterSeconds() + " Sekunden. Status löst keine Abfrage aus.");
-        if (sender instanceof Player player) showSettings(sender, player.getUniqueId(), "Deine Einstellungen");
+        String cache = status.quote().map(quote -> text(sender, "status.cache.details",
+                MessageFormatter.age(quote.snapshot().fetchedAt(), messages().language(sender)),
+                MessageFormatter.age(quote.snapshot().providerUpdatedAt(), messages().language(sender)),
+                text(sender, quote.stale() ? "status.stale" : "status.fresh"))).orElse(text(sender, "status.cache.empty"));
+        messages().send(sender, text(sender, "status.cache", cache));
+        messages().send(sender, text(sender, "status.request", text(sender, status.requestInFlight() ? "running" : "idle"), status.retryAfterSeconds()));
+        for (String line : ServiceDiagnostics.lines(status, messages().language(sender))) messages().send(sender, line);
+        if (sender instanceof Player player) showSettings(sender, player.getUniqueId(), text(sender, "label.settings"));
     }
     private void showSettings(CommandSender sender, UUID id, String label) {
         Preferences preferences = plugin.getPreferences().get(id);
         String currency = preferences.currency().equals("DEFAULT") ? "DEFAULT → " + plugin.getConfigManager().getPriceCurrency() : preferences.currency();
         String locale = preferences.locale().equals("DEFAULT") ? "DEFAULT → " + plugin.getConfigManager().getLocale().toLanguageTag() : preferences.locale();
-        messages().send(sender, label + ": Kursnachrichten: " + (preferences.notifications() ? "an" : "aus")
-                + " | Anzeige: " + preferences.display().name().toLowerCase(Locale.ROOT)
-                + " | Währung: " + currency + " | Sprache: " + locale);
-        messages().send(sender, "Chat: " + plugin.getConfigManager().getPriceInterval() + " Minuten | Actionbar: "
-                + actionbarDescription(preferences) + " | Automatische Anzeige: " + (effectiveDisplay(preferences) ? "aktiv" : "inaktiv"));
+        String language = languageDescription(sender, id);
+        messages().send(sender, text(sender, "settings.main", label, text(sender, preferences.notifications() ? "on" : "off"),
+                preferences.display().name().toLowerCase(Locale.ROOT), currency, language, locale));
+        messages().send(sender, text(sender, "settings.display", plugin.getConfigManager().getPriceInterval(),
+                actionbarDescription(sender, preferences), text(sender, effectiveDisplay(preferences) ? "active" : "inactive")));
+    }
+    private String languageDescription(CommandSender sender, UUID id) {
+        String selected = plugin.getPreferences().get(id).language();
+        if (!selected.equals("AUTO") && !selected.equals("DEFAULT")) return selected;
+        Player target = sender instanceof Player self && self.getUniqueId().equals(id) ? self : plugin.getServer().getPlayer(id);
+        boolean automatic = selected.equals("AUTO") || plugin.getConfigManager().isLanguageAutoDetect();
+        if (automatic && target == null) return text(sender, "language.auto.offline", selected);
+        Language effective = Language.resolve(selected, target == null ? null : target.locale(), plugin.getConfigManager().getLanguage(),
+                plugin.getConfigManager().isLanguageAutoDetect());
+        return selected + " → " + effective.code();
     }
     private boolean effectiveDisplay(Preferences settings) {
         return settings.notifications() && settings.display() != DisplayMode.OFF
                 && (settings.display() != DisplayMode.CHAT || plugin.getConfigManager().isBroadcastsEnabled());
     }
-    private String inactiveHint(UUID id, String commandPrefix) {
+    private String inactiveHint(CommandSender sender, UUID id, String commandPrefix) {
         Preferences settings = plugin.getPreferences().get(id);
-        if (!settings.notifications()) return " Regelmäßige Anzeige bleibt aus; einschalten mit " + commandPrefix + " on.";
-        if (settings.display() == DisplayMode.OFF) return " Anzeige bleibt aus; wähle " + commandPrefix + " display chat oder actionbar.";
+        if (!settings.notifications()) return text(sender, "hint.notifications", commandPrefix);
+        if (settings.display() == DisplayMode.OFF) return text(sender, "hint.display", commandPrefix);
         if (settings.display() == DisplayMode.CHAT && !plugin.getConfigManager().isBroadcastsEnabled())
-            return " Globale Chatnachrichten sind ausgeschaltet; ein OP kann /btc on all verwenden.";
+            return text(sender, "hint.global");
         return "";
     }
-    private String actionbarDescription(Preferences settings) {
-        if (settings.actionbarMode() == ActionbarMode.CONTINUOUS) return "dauerhaft";
+    private String actionbarDescription(CommandSender sender, Preferences settings) {
         int minutes = settings.actionbarIntervalMinutes();
-        return "Intervall " + (minutes == 0 ? "DEFAULT → " + plugin.getConfigManager().getPriceInterval() : minutes) + " Minuten";
+        String timing = settings.actionbarMode() == ActionbarMode.CONTINUOUS ? text(sender, "actionbar.continuous")
+                : text(sender, "actionbar.interval", minutes == 0 ? "DEFAULT → " + plugin.getConfigManager().getPriceInterval() : minutes);
+        return timing + ", " + text(sender, "actionbar.content." + settings.actionbarContent().name().toLowerCase(Locale.ROOT));
     }
     private void display(CommandSender sender, UUID id, Player online, String label, String[] args, int offset) {
         String prefix = offset == 1 ? "/btc" : "/btc player " + args[1];
-        String syntax = prefix + " display chat|off oder actionbar [continuous|interval] [1|5|10|30|60|DEFAULT]";
+        String syntax = text(sender, "display.syntax", prefix);
         if (args.length <= offset) throw usage(syntax);
         DisplayMode selected;
         try { selected = DisplayMode.valueOf(args[offset].toUpperCase(Locale.ROOT)); }
@@ -228,6 +256,9 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
         if (selected != DisplayMode.ACTIONBAR || args.length == offset + 1) {
             exact(args, offset + 1);
             plugin.getPreferences().setDisplay(id, selected);
+        } else if (args[offset + 1].equalsIgnoreCase("content")) {
+            exact(args, offset + 3);
+            plugin.getPreferences().setActionbarContent(id, ActionbarContent.parse(args[offset + 2]));
         } else {
             if (args.length > offset + 3) throw usage(syntax);
             ActionbarMode mode;
@@ -235,7 +266,7 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             catch (IllegalArgumentException ex) { throw usage(syntax); }
             int minutes = old.actionbarIntervalMinutes();
             if (args.length == offset + 3) {
-                if (mode != ActionbarMode.INTERVAL) throw usage("Minuten sind nur für actionbar interval erlaubt.");
+                if (mode != ActionbarMode.INTERVAL) throw failure("error.actionbar.minutes");
                 String raw = args[offset + 2];
                 try { minutes = raw.equalsIgnoreCase("DEFAULT") ? 0 : Integer.parseInt(raw); }
                 catch (NumberFormatException ex) { throw usage(syntax); }
@@ -246,7 +277,7 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
         Preferences current = plugin.getPreferences().get(id);
         if (online != null && !old.equals(current)) plugin.getScheduler().resetActionbar(online);
         messages().send(sender, label + ": " + selected.name().toLowerCase(Locale.ROOT)
-                + (selected == DisplayMode.ACTIONBAR ? " (" + actionbarDescription(current) + ")" : "") + inactiveHint(id, prefix));
+                + (selected == DisplayMode.ACTIONBAR ? " (" + actionbarDescription(sender, current) + ")" : "") + inactiveHint(sender, id, prefix));
     }
     private record Target(UUID id, String label, Player online) { }
     /** Resolve from live/local records only. Never use getOfflinePlayer(String), which can query Mojang synchronously. */
@@ -257,7 +288,7 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             if (online == null && sender instanceof Player self && self.getUniqueId().equals(id)) online = self;
             return new Target(id, online == null ? id.toString() : online.getName(), online);
         }
-        if (!raw.matches("[a-zA-Z0-9_]{1,16}")) throw usage("Bitte einen exakten Spielernamen oder eine vollständige UUID angeben.");
+        if (!raw.matches("[a-zA-Z0-9_]{1,16}")) throw failure("error.target.format");
         Player online = plugin.getServer().getPlayerExact(raw);
         if (online == null && sender instanceof Player self && self.getName().equalsIgnoreCase(raw)) online = self;
         if (online != null) return new Target(online.getUniqueId(), online.getName(), online);
@@ -268,16 +299,16 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             if (known.getName() != null && known.getName().equalsIgnoreCase(raw))
                 return new Target(known.getUniqueId(), known.getName(), known.getPlayer());
         }
-        throw usage("Spielername ist auf diesem Server unbekannt. Bitte eine vollständige UUID verwenden; es erfolgt keine externe Profilabfrage.");
+        throw failure("error.target.unknown");
     }
     private void targetSettings(CommandSender sender, String[] args) {
         admin(sender);
-        if (args.length < 3) throw usage("/btc player <Name|UUID> on|off|settings|currency <Währung|DEFAULT>");
+        if (args.length < 3) throw failure("usage.player");
         String action = args[2].toLowerCase(Locale.ROOT);
         if (action.equals("on") || action.equals("off") || action.equals("settings")) exact(args, 3);
-        else if (action.equals("currency") || action.equals("locale")) exact(args, 4);
-        else if (action.equals("display")) { if (args.length < 4 || args.length > 6) throw usage("/btc player <Name|UUID> display chat|off|actionbar [continuous|interval] [Minuten|DEFAULT]"); }
-        else throw usage("/btc player <Name|UUID> on|off|settings|currency <Währung|DEFAULT>");
+        else if (action.equals("currency") || action.equals("locale") || action.equals("language")) exact(args, 4);
+        else if (action.equals("display")) { if (args.length < 4 || args.length > 6) throw failure("usage.player.display"); }
+        else throw failure("usage.player");
         Target target = resolveTarget(sender, args[1]);
         switch (action) {
             case "on", "off" -> {
@@ -285,20 +316,25 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
                 boolean changed = plugin.getPreferences().get(target.id()).notifications() != enabled;
                 plugin.getPreferences().setNotifications(target.id(), enabled);
                 if (changed && target.online() != null) plugin.getScheduler().resetActionbar(target.online());
-                messages().send(sender, target.label() + ": Kursnachrichten " + (enabled ? "an" : "aus") + ". Preisalarme bleiben separat verwaltbar."
-                        + inactiveHint(target.id(), "/btc player " + args[1]));
+                messages().send(sender, text(sender, "target.notifications", target.label(), text(sender, enabled ? "on" : "off"))
+                        + inactiveHint(sender, target.id(), "/btc player " + args[1]));
             }
             case "currency" -> {
                 String selected = args[3].toUpperCase(Locale.ROOT);
                 plugin.getPreferences().setCurrency(target.id(), selected);
-                messages().send(sender, target.label() + ": Währung " + selected);
+                messages().send(sender, text(sender, "target.currency", target.label(), selected));
             }
             case "settings" -> showSettings(sender, target.id(), target.label());
-            case "display" -> display(sender, target.id(), target.online(), target.label() + ": Anzeige", args, 3);
+            case "display" -> display(sender, target.id(), target.online(), text(sender, "target.display", target.label()), args, 3);
             case "locale" -> {
                 String selected = args[3].equalsIgnoreCase("DEFAULT") ? "DEFAULT" : args[3];
                 plugin.getPreferences().setLocale(target.id(), selected);
-                messages().send(sender, target.label() + ": Sprache/Zahlenformat " + selected);
+                messages().send(sender, text(sender, "target.locale", target.label(), selected));
+            }
+            case "language" -> {
+                plugin.getPreferences().setLanguage(target.id(), args[3]);
+                if (target.online() != null) plugin.getScheduler().resetActionbar(target.online());
+                messages().send(sender, text(sender, "language.target", target.label(), languageDescription(sender, target.id())));
             }
             default -> throw new IllegalStateException("Validated action was lost");
         }
@@ -307,19 +343,19 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
         Player player = player(sender);
         if (args.length == 2 && args[1].equalsIgnoreCase("list")) {
             var alerts = plugin.getPreferences().listAlerts(player.getUniqueId());
-            if (alerts.isEmpty()) messages().send(sender, "Keine Preisalarme. /btc alert above|below <Betrag> <Währung>");
-            alerts.forEach(alert -> messages().send(sender, alert.id().toString().substring(0, 8) + " | " + alert.direction()
+            if (alerts.isEmpty()) messages().send(sender, text(sender, "alert.none"));
+            alerts.forEach(alert -> messages().send(sender, alert.id().toString().substring(0, 8) + " | " + text(sender, alert.direction() == AlertDirection.ABOVE ? "above" : "below")
                     + " " + MessageFormatter.money(alert.threshold(), messages().locale(sender), alert.currency()) + " " + alert.currency()));
         } else if (args.length == 3 && args[1].equalsIgnoreCase("remove")) {
-            if (!plugin.getPreferences().removeAlert(player.getUniqueId(), args[2])) throw usage("Alarm nicht gefunden oder ID nicht eindeutig.");
-            messages().send(sender, "Preisalarm entfernt.");
+            if (!plugin.getPreferences().removeAlert(player.getUniqueId(), args[2])) throw failure("error.alert.missing");
+            messages().send(sender, text(sender, "alert.removed"));
         } else {
             exact(args, 4);
             AlertDirection direction;
             try { direction = AlertDirection.valueOf(args[1].toUpperCase(Locale.ROOT)); }
-            catch (IllegalArgumentException ex) { throw usage("/btc alert above|below <Betrag> <Währung>"); }
+            catch (IllegalArgumentException ex) { throw failure("usage.alert"); }
             var alert = plugin.getPreferences().addAlert(player.getUniqueId(), direction, positiveAmount(args[2]), coinCurrency(args[3]));
-            messages().send(sender, "Alarm " + alert.id().toString().substring(0, 8) + " gespeichert. Meldet die nächste Schwellenüberschreitung, sobald ein Ausgangskurs bekannt ist.");
+            messages().send(sender, text(sender, "alert.saved", alert.id().toString().substring(0, 8)));
         }
     }
     public static BigDecimal toSats(BigDecimal fiatAmount, BigDecimal price) {
@@ -329,20 +365,20 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
         exact(args, 3); BigDecimal amount = positiveAmount(args[1]); String currency = coinCurrency(args[2]);
         request(sender, false, quote -> messages().send(sender, MessageFormatter.money(amount, messages().locale(sender), currency) + " " + currency
                 + " ≈ " + MessageFormatter.number(toSats(amount, quote.snapshot().price(currency)), messages().locale(sender), 0)
-                + " sats" + (quote.stale() ? " &c(veralteter Kurs)" : "") + ". 1 BTC = 100.000.000 sats."));
+                + " sats" + (quote.stale() ? text(sender, "sats.stale") : "") + ". 1 BTC = " + MessageFormatter.number(new BigDecimal("100000000"), messages().locale(sender), 0) + " sats."));
     }
     private void board(CommandSender sender, String[] args) {
         if (args.length == 2 && args[1].equalsIgnoreCase("list")) {
-            messages().send(sender, "Kurstafeln: " + String.join(", ", plugin.getBoards().names())); return;
+            messages().send(sender, text(sender, "board.list", String.join(", ", plugin.getBoards().names()))); return;
         }
         admin(sender);
         if ((args.length == 2 || args.length == 3) && args[1].equalsIgnoreCase("create")) {
             plugin.getBoards().create(player(sender), args.length == 3 ? args[2] : "spawn");
-            messages().send(sender, "Kurstafel an deiner Position erstellt.");
+            messages().send(sender, text(sender, "board.created"));
         } else if (args.length == 3 && args[1].equalsIgnoreCase("remove")) {
-            if (!plugin.getBoards().remove(args[2])) throw usage("Kurstafel nicht gefunden.");
-            messages().send(sender, "Kurstafel entfernt (entladene Chunks werden beim Laden bereinigt).");
-        } else throw usage("/btc board create [Name] | remove <Name> | list");
+            if (!plugin.getBoards().remove(args[2])) throw failure("error.board.missing");
+            messages().send(sender, text(sender, "board.removed"));
+        } else throw failure("usage.board");
     }
     private void history(CommandSender sender, String[] args) {
         if (args.length > 2) throw usage("/btc history [1h|6h|24h|7d]");
@@ -350,18 +386,17 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
         if (period == null) throw usage("/btc history [1h|6h|24h|7d]");
         String selected = messages().currency(sender);
         List<PriceSnapshot> samples = plugin.getHistory().list(period);
-        if (samples.isEmpty()) { messages().send(sender, "Für diesen Zeitraum sind noch keine Kursdaten gespeichert."); return; }
+        if (samples.isEmpty()) { messages().send(sender, text(sender, "history.empty")); return; }
         List<String> currencies = selected.equals("BOTH") ? List.of("EUR", "USD") : List.of(selected);
         for (String currency : currencies) {
             List<PriceSnapshot> available = samples.stream().filter(sample -> sample.supports(currency)).toList();
-            if (available.isEmpty()) { messages().send(sender, "Für " + currency + " sind in diesem Zeitraum noch keine Kursdaten gespeichert."); continue; }
+            if (available.isEmpty()) { messages().send(sender, text(sender, "history.currency.empty", currency)); continue; }
             BigDecimal low = available.stream().map(s -> s.price(currency)).min(BigDecimal::compareTo).orElseThrow();
             BigDecimal high = available.stream().map(s -> s.price(currency)).max(BigDecimal::compareTo).orElseThrow();
-            messages().send(sender, "Verlauf " + currency + " (" + period.toHours() + "h, " + available.size() + " Messungen): "
-                    + MessageFormatter.money(low, messages().locale(sender), currency) + "–" + MessageFormatter.money(high, messages().locale(sender), currency));
-            messages().send(sender, MessageFormatter.chart(available, currency, period, Instant.now()));
+            messages().send(sender, text(sender, "history.summary", currency, period.toHours(), available.size(), MessageFormatter.money(low, messages().locale(sender), currency), MessageFormatter.money(high, messages().locale(sender), currency)));
+            messages().send(sender, MessageFormatter.chart(available, currency, period, Instant.now(), messages().language(sender)));
         }
-        messages().send(sender, "Links: früher; rechts: jetzt. Zeichen steigen von _ bis #; Leerzeichen = keine Messung.");
+        messages().send(sender, text(sender, "history.legend"));
     }
     private void portfolio(CommandSender sender, String[] args) {
         Player player = player(sender); UUID id = player.getUniqueId();
@@ -369,22 +404,21 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             showBalance(sender, plugin.getPreferences().startPortfolio(id)); return;
         }
         if (args.length == 1) {
-            showBalance(sender, plugin.getPreferences().getPortfolio(id).orElseThrow(() -> usage("Virtuelles Lernportfolio: /btc portfolio start (10.000 virtuelle EUR; kein echtes Geld)."))); return;
+            showBalance(sender, plugin.getPreferences().getPortfolio(id).orElseThrow(() -> failure("portfolio.intro"))); return;
         }
         exact(args, 3); String action = args[1].toLowerCase(Locale.ROOT);
-        if (!action.equals("buy") && !action.equals("sell")) throw usage("/btc portfolio start | buy <EUR-Betrag> | sell <BTC-Betrag>");
+        if (!action.equals("buy") && !action.equals("sell")) throw failure("usage.portfolio");
         BigDecimal amount = positiveAmount(args[2]);
-        if (plugin.getPreferences().getPortfolio(id).isEmpty()) throw usage("Zuerst /btc portfolio start. Es handelt sich ausschließlich um virtuelles Geld.");
+        if (plugin.getPreferences().getPortfolio(id).isEmpty()) throw failure("error.portfolio.start");
         request(sender, false, quote -> {
-            if (quote.stale()) throw usage("Handel benötigt einen aktuellen Kurs. Bitte später erneut versuchen.");
+            if (quote.stale()) throw failure("error.portfolio.stale");
             PortfolioBalance balance = action.equals("buy") ? plugin.getPreferences().buy(id, amount, quote.snapshot().eur())
                     : plugin.getPreferences().sell(id, amount, quote.snapshot().eur());
             showBalance(sender, balance);
         });
     }
     private void showBalance(CommandSender sender, PortfolioBalance balance) {
-        messages().send(sender, "Virtuelles Lernportfolio (kein echtes Geld): " + MessageFormatter.number(balance.cashEur(), messages().locale(sender), 2)
-                + " EUR | " + MessageFormatter.number(balance.bitcoin(), messages().locale(sender), 8) + " BTC");
+        messages().send(sender, text(sender, "portfolio.balance", MessageFormatter.number(balance.cashEur(), messages().locale(sender), 2), MessageFormatter.number(balance.bitcoin(), messages().locale(sender), 8)));
     }
     public void showHelp(CommandSender sender) {
         showHelp(sender, 1);
@@ -398,85 +432,36 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
         return (helpEntries(isAdmin(sender)).size() + HELP_PAGE_SIZE - 1) / HELP_PAGE_SIZE;
     }
     private void invalidHelpPage(CommandSender sender) {
-        messages().error(sender, "Hilfe-Seite muss eine ganze Zahl von 1 bis " + helpPageCount(sender) + " sein. /btc help [Seite] oder /btchelp [Seite]");
+        messages().error(sender, text(sender, "help.invalid", helpPageCount(sender)));
     }
     public void showHelp(CommandSender sender, int page) {
         if (!allowed(sender)) return;
-        List<String> entries = helpEntries(isAdmin(sender));
+        List<String> entries = helpEntries(isAdmin(sender), messages().language(sender));
         int pages = helpPageCount(sender);
         if (page < 1 || page > pages) { invalidHelpPage(sender); return; }
         int first = (page - 1) * HELP_PAGE_SIZE;
-        String section = first >= helpEntries(false).size() ? "OP/Admin-Verwaltung" : "Spielerbefehle und Hinweise";
-        messages().send(sender, "&6BitcoinPrice-Hilfe " + page + "/" + pages + " — " + section);
+        String section = first >= helpEntries(false).size() ? text(sender, "help.admin") : text(sender, "help.player");
+        messages().send(sender, text(sender, "help.title", page, pages, section));
         for (String entry : entries.subList(first, Math.min(first + HELP_PAGE_SIZE, entries.size()))) messages().send(sender, entry);
-        Component footer = messages().component(plugin.getConfigManager().getMessagePrefix()).append(Component.text("Seiten: ", NamedTextColor.GRAY));
-        if (page > 1) footer = footer.append(helpLink("« Zurück (/btc help " + (page - 1) + ")", page - 1));
+        Component footer = messages().component(plugin.getConfigManager().getMessagePrefix()).append(Component.text(text(sender, "help.pages"), NamedTextColor.GRAY));
+        if (page > 1) footer = footer.append(helpLink(sender, text(sender, "help.previous", page - 1), page - 1));
         if (page > 1 && page < pages) footer = footer.append(Component.text(" | ", NamedTextColor.GRAY));
-        if (page < pages) footer = footer.append(helpLink("Weiter » (/btc help " + (page + 1) + ")", page + 1));
+        if (page < pages) footer = footer.append(helpLink(sender, text(sender, "help.next", page + 1), page + 1));
         sender.sendMessage(footer);
     }
-    private static Component helpLink(String label, int page) {
+    private Component helpLink(CommandSender sender, String label, int page) {
         return Component.text(label, NamedTextColor.YELLOW)
                 .clickEvent(ClickEvent.runCommand("/btc help " + page))
-                .hoverEvent(HoverEvent.showText(Component.text("Hilfeseite " + page + " öffnen")));
+                .hoverEvent(HoverEvent.showText(Component.text(text(sender, "help.hover", page))));
     }
-    /** Canonical complete help; exactly eight normal entries per page keep topics together. */
-    public static List<String> helpEntries(boolean administrator) {
-        List<String> entries = new ArrayList<>(List.of(
-                "/btc — aktuellen Bitcoin-Kurs anzeigen",
-                "/btc price — aktuellen Bitcoin-Kurs anzeigen",
-                "/btceur — Bitcoin-Kurs in EUR anzeigen",
-                "/btcusd — Bitcoin-Kurs in USD anzeigen",
-                "/btc help [Seite] — diese Hilfe; ohne Seite: 1",
-                "/btchelp [Seite] — identische Hilfe; ohne Seite: 1",
-                "/btc interval — Chat-Intervall und Actionbar-DEFAULT ansehen",
-                "/btc currency — deine wirksame Währung ansehen (Konsole: global)",
-                "/btc currency <Währung|BOTH|DEFAULT> — persönliche Währung setzen",
-                "/btc on — deine ausgewählten Kursnachrichten einschalten",
-                "/btc off — deine Kursnachrichten ausschalten; Alarme bleiben separat",
-                "/btc settings — gespeicherte und wirksame Einstellungen ansehen",
-                "/btc status — Kurscache, API-Wartezeit und wirksame Anzeige prüfen; keine API-Abfrage",
-                "/btc display chat — Kurse im Chat anzeigen",
-                "/btc display actionbar — Kurse über der Schnellzugriffsleiste anzeigen",
-                "/btc display actionbar continuous — dauerhaft sichtbar; jede Sekunde aus dem Cache",
-                "/btc display actionbar interval [1|5|10|30|60|DEFAULT] — kurz im persönlichen Minutenintervall",
-                "/btc display off — regelmäßige Kursanzeige ausschalten",
-                "/btc locale <Sprachcode|DEFAULT> — Zahlenformat wählen, z. B. de-DE oder en-US",
-                "/btc alert above <Betrag> <Währung> — Alarm beim Kreuzen nach oben speichern",
-                "/btc alert below <Betrag> <Währung> — Alarm beim Kreuzen nach unten speichern",
-                "/btc alert list — deine Alarme samt ID ansehen",
-                "/btc alert remove <ID> — eigenen Alarm löschen (eindeutige Kurz-ID möglich)",
-                "/btc sats <Betrag> <Währung> — Gegenwert in ganzen Satoshi anzeigen",
-                "/btc history [1h|6h|24h|7d] — gespeicherte Kurse; Standard: 24h",
-                "/btc board list — Namen der Kurstafeln ansehen",
-                "Alarme sind explizit: /btc off und globales Chat-Aus deaktivieren sie nicht.",
-                "/btc portfolio — dein virtuelles Guthaben und BTC ansehen",
-                "/btc portfolio start — Lernportfolio mit 10.000 virtuellen EUR eröffnen; kein Reset",
-                "/btc portfolio buy <EUR-Betrag> — virtuelle BTC zum aktuellen EUR-Kurs kaufen",
-                "/btc portfolio sell <BTC-Betrag> — virtuelle BTC zum aktuellen EUR-Kurs verkaufen",
-                "Währungen: " + String.join(", ", CurrencyCatalog.codes()) + ". Beträge mit Dezimalpunkt, z. B. 10.50.",
-                "BOTH zeigt EUR und USD gemeinsam; Alarme und Satoshi-Umrechnung benötigen eine einzelne Währung.",
-                "DEFAULT übernimmt die globale Auswahl; bei /btc locale das globale Zahlenformat.",
-                "Portfolio: ausschließlich Spielgeld, freiwilliges Lernspiel; keine echten Käufe. Handel benötigt aktuellen Kurs."));
-        if (administrator) {
-            entries.addAll(List.of(
-                    "/btc interval <1|5|10|30|60> — Chat-Intervall und Actionbar-DEFAULT in Minuten ändern (OP/Admin)",
-                    "/btc global currency <Währung|BOTH> — globale Währung ändern (OP/Admin)",
-                    "/btc refresh — Kurs mit Abfragebegrenzung aktualisieren und an berechtigte Chat-Empfänger senden (OP/Admin)",
-                    "/btc on all — globale Chatnachrichten einschalten (OP/Admin)",
-                    "/btc off all — globale Chatnachrichten ausschalten; persönliche Actionbar/Alarme bleiben separat (OP/Admin)",
-                    "/btc board create [Name] — Tafel an deiner Position erstellen; Standard: spawn (OP/Admin)",
-                    "/btc board remove <Name> — Tafel entfernen (OP/Admin)",
-                    "/btc player <Name|UUID> settings — Spielereinstellungen ansehen (OP/Admin)",
-                    "/btc player <Name|UUID> on — individuelle Kursnachrichten einschalten (OP/Admin)",
-                    "/btc player <Name|UUID> off — individuelle Kursnachrichten ausschalten (OP/Admin)",
-                    "/btc player <Name|UUID> currency <Währung|BOTH|DEFAULT> — individuelle Währung ändern (OP/Admin)",
-                    "/btc player <Name|UUID> display <chat|actionbar|off> — individuelle Anzeige ändern (OP/Admin)",
-                    "/btc player <Name|UUID> display actionbar continuous — dauerhaft für einen Spieler (OP/Admin)",
-                    "/btc player <Name|UUID> display actionbar interval [1|5|10|30|60|DEFAULT] — persönliches Minutenintervall (OP/Admin)",
-                    "/btc player <Name|UUID> locale <Sprachcode|DEFAULT> — individuelles Zahlenformat ändern (OP/Admin)",
-                    "Spielerziele: exakte bekannte Namen oder vollständige UUID; offline speicherbar, keine externe Profilabfrage."));
-        }
+    /** Canonical complete help, displayed in pages of eight entries. */
+    public static List<String> helpEntries(boolean administrator) { return helpEntries(administrator, Language.GERMAN); }
+    public static List<String> helpEntries(boolean administrator, Language language) {
+        List<String> entries = new ArrayList<>();
+        for (int index = 1; index <= 37; index++)
+            entries.add(language.text("help.player." + index, String.join(", ", CurrencyCatalog.codes())));
+        if (administrator) for (int index = 1; index <= 19; index++)
+            entries.add(language.text("help.admin." + index));
         return List.copyOf(entries);
     }
     @Override public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
@@ -484,7 +469,7 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
         List<String> values = new ArrayList<>(); boolean admin = isAdmin(sender);
         String sub = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
         if (args.length == 1) {
-            values.addAll(List.of("price", "help", "interval", "currency", "on", "off", "settings", "status", "locale", "display", "alert", "sats", "history", "portfolio", "board"));
+            values.addAll(List.of("price", "help", "interval", "currency", "on", "off", "settings", "status", "locale", "language", "display", "alert", "sats", "history", "portfolio", "board"));
             if (admin) values.addAll(List.of("global", "refresh", "player"));
         } else if (args.length == 2) {
             switch (sub) {
@@ -498,9 +483,10 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
                     }
                 }
                 case "interval" -> { if (admin) values.addAll(List.of("1", "5", "10", "30", "60")); }
-                case "global" -> { if (admin) values.add("currency"); }
+                case "global" -> { if (admin) values.addAll(List.of("currency", "language")); }
                 case "on", "off" -> { if (admin) values.add("all"); }
                 case "locale" -> values.addAll(List.of("de-DE", "en-US", "DEFAULT"));
+                case "language" -> values.addAll(List.of("de", "en", "AUTO", "DEFAULT"));
                 case "display" -> values.addAll(List.of("chat", "actionbar", "off"));
                 case "alert" -> values.addAll(List.of("above", "below", "list", "remove"));
                 case "history" -> values.addAll(List.of("1h", "6h", "24h", "7d"));
@@ -510,27 +496,34 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             }
         } else if (args.length == 3) {
             if (sub.equals("global") && admin && args[1].equalsIgnoreCase("currency")) values.addAll(CurrencyCatalog.selectionCodes(false));
-            if (sub.equals("player") && admin) values.addAll(List.of("on", "off", "currency", "settings", "display", "locale"));
+            if (sub.equals("global") && admin && args[1].equalsIgnoreCase("language")) values.addAll(List.of("de", "en", "AUTO"));
+            if (sub.equals("player") && admin) values.addAll(List.of("on", "off", "currency", "settings", "display", "locale", "language"));
             if (sub.equals("sats")) values.addAll(CurrencyCatalog.codes());
-            if (sub.equals("display") && args[1].equalsIgnoreCase("actionbar")) values.addAll(List.of("continuous", "interval"));
+            if (sub.equals("display") && args[1].equalsIgnoreCase("actionbar")) values.addAll(List.of("continuous", "interval", "content"));
             if (sub.equals("board") && admin && args[1].equalsIgnoreCase("remove")) values.addAll(plugin.getBoards().names());
             if (sub.equals("alert") && args[1].equalsIgnoreCase("remove") && sender instanceof Player player)
                 plugin.getPreferences().listAlerts(player.getUniqueId()).forEach(alert -> values.add(alert.id().toString().substring(0, 8)));
         } else if (args.length == 4) {
             if (sub.equals("display") && args[1].equalsIgnoreCase("actionbar") && args[2].equalsIgnoreCase("interval"))
                 values.addAll(List.of("1", "5", "10", "30", "60", "DEFAULT"));
+            if (sub.equals("display") && args[1].equalsIgnoreCase("actionbar") && args[2].equalsIgnoreCase("content"))
+                values.addAll(List.of("price", "change", "full"));
             if (sub.equals("alert") && (args[1].equalsIgnoreCase("above") || args[1].equalsIgnoreCase("below"))) values.addAll(CurrencyCatalog.codes());
             if (sub.equals("player") && admin) switch (args[2].toLowerCase(Locale.ROOT)) {
                 case "currency" -> values.addAll(CurrencyCatalog.selectionCodes(true));
                 case "display" -> values.addAll(List.of("chat", "actionbar", "off"));
                 case "locale" -> values.addAll(List.of("de-DE", "en-US", "DEFAULT"));
+                case "language" -> values.addAll(List.of("de", "en", "AUTO", "DEFAULT"));
                 default -> { }
             }
         } else if (args.length == 5 && sub.equals("player") && admin && args[2].equalsIgnoreCase("display") && args[3].equalsIgnoreCase("actionbar")) {
-            values.addAll(List.of("continuous", "interval"));
+            values.addAll(List.of("continuous", "interval", "content"));
         } else if (args.length == 6 && sub.equals("player") && admin && args[2].equalsIgnoreCase("display")
                 && args[3].equalsIgnoreCase("actionbar") && args[4].equalsIgnoreCase("interval")) {
             values.addAll(List.of("1", "5", "10", "30", "60", "DEFAULT"));
+        } else if (args.length == 6 && sub.equals("player") && admin && args[2].equalsIgnoreCase("display")
+                && args[3].equalsIgnoreCase("actionbar") && args[4].equalsIgnoreCase("content")) {
+            values.addAll(List.of("price", "change", "full"));
         }
         String prefix = args.length == 0 ? "" : args[args.length - 1].toLowerCase(Locale.ROOT);
         return values.stream().distinct().filter(value -> value.toLowerCase(Locale.ROOT).startsWith(prefix)).toList();

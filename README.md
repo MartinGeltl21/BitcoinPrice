@@ -4,7 +4,7 @@
 
 *Eigene Vektorillustration; kein Spiel-Screenshot und keine realen Kursdaten.*
 
-![Paper 26.2 · Java 25 · Version 2.2.0 · MIT-Lizenz](docs/assets/badges.svg)
+![Paper 26.2 · Java 25 · Version 2.3.0 · MIT-Lizenz](docs/assets/badges.svg)
 
 Bitcoin-Kurse auf deinem Minecraft-Server: im Chat, in der Actionbar oder auf einer Kurstafel am Spawn. Dazu persönliche Währungen und Preisalarme — mit einem gemeinsamen Cache und ohne zusätzliche Datenbank.
 
@@ -31,7 +31,7 @@ OPs können Einstellungen einzelner Spieler verwalten. Ohne Empfänger oder gela
 
 1. Die JAR aus dem Build-Artefakt dieses Branches herunterladen oder `mvn clean verify` mit JDK 25 ausführen.
 2. Server stoppen und bestehende Plugin-JAR und den Ordner `plugins/BitcoinPrice` sichern.
-3. Genau eine JAR installieren: `BitcoinPrice-2.2.0.jar`. Die Datei `original-*.jar` nicht verwenden.
+3. Genau eine JAR installieren: `BitcoinPrice-2.3.0.jar`. Die Datei `original-*.jar` nicht verwenden.
 4. Server vollständig starten. Bestehende `config.yml` bleibt lesbar; fehlende Einstellungen erhalten Standardwerte.
 
 Die Minecraft-Welt und das bestehende `/data`-Volume bleiben erhalten. Eine Anleitung für Docker/Coolify steht in [docs/docker-compose.md](docs/docker-compose.md). Kein `/reload` oder Hotloader.
@@ -53,6 +53,8 @@ Der erste Befehl zeigt den Kurs. Die weiteren wählen die eigene Währung und ak
 
 **Neu in 2.1.1:** Die Hilfe ist in übersichtliche Seiten aufgeteilt: `/btc help 1`, `/btc help 2` oder `/btchelp 1`. Die Navigation zeigt, welche Seiten für die eigenen Rechte verfügbar sind.
 
+**Neu in 2.3:** Deutsch und Englisch für Plugin-Texte, optionale automatische Spracherkennung aus Minecraft, kompakte Actionbar-Inhalte und genauere API-Diagnosen mit `/btc status`.
+
 **Neu in 2.2:** Die Actionbar kann dauerhaft sichtbar bleiben oder in einem eigenen Minutenintervall kurz erscheinen. Die dauerhafte Anzeige wird jede Sekunde aus dem Cache erneuert; das erzeugt keine zusätzliche API-Abfrage. Bestehende Actionbar-Einstellungen erhalten automatisch den Modus `continuous`.
 
 ## Screenshots
@@ -70,8 +72,10 @@ Für die Bildgalerie sind echte Spielaufnahmen vorgesehen: **Kurstafel**, **Acti
 | `/btc status` | Cache, Anbieter-Datenalter, Wartezeit bis zur nächsten Abfrage und laufende Abfrage ansehen; ohne HTTP-Anfrage |
 | `/btc currency` | Wirksame persönliche Währung ansehen |
 | `/btc currency <CODE>` | Persönliche Währung; DEFAULT übernimmt die globale Auswahl, BOTH zeigt EUR und USD |
-| `/btc locale <Sprachcode>\|DEFAULT` | Persönliches Zahlenformat, z. B. de-DE oder en-US |
+| `/btc language de\|en\|AUTO\|DEFAULT` | Persönliche Textsprache: Deutsch, Englisch oder automatisch aus Minecraft |
+| `/btc locale <Sprachcode>\|DEFAULT` | Persönliches Zahlenformat, z. B. de-DE oder en-US; unabhängig von der Textsprache |
 | `/btc display chat\|actionbar\|off` | Persönliche Anzeigeform |
+| `/btc display actionbar content price\|change\|full` | Inhalt wählen: nur Preis, Preis + Tagesänderung oder vollständige Anzeige |
 | `/btc display actionbar continuous` | Actionbar dauerhaft anzeigen |
 | `/btc display actionbar interval [1\|5\|10\|30\|60\|DEFAULT]` | Actionbar kurz im eigenen Intervall anzeigen; DEFAULT übernimmt das globale Intervall |
 | `/btc on`, `/btc off` | Eigene regelmäßige Chat-/Actionbar-Anzeige aktivieren/deaktivieren |
@@ -87,11 +91,15 @@ Für die Bildgalerie sind echte Spielaufnahmen vorgesehen: **Kurstafel**, **Acti
 | `/btc portfolio buy 100` | Für 100 virtuelle EUR BTC kaufen |
 | `/btc portfolio sell 0.001` | 0,001 virtuelle BTC verkaufen |
 
+Die Textsprache und das Zahlenformat lassen sich getrennt einstellen. `/btc language en` übersetzt Befehlsantworten, Hilfe, Chat, Actionbar und Preisalarme ins Englische, einschließlich „aktuell“ → „current“ und „veraltet“ → „stale“. `/btc locale en-US` stellt zusätzlich Zahlen wie `80.000,50` auf `80,000.50` um. `DEFAULT` übernimmt jeweils die globale Einstellung. Ohne neue Auswahl bleiben bestehende Spielerprofile bei der globalen Textsprache, standardmäßig Deutsch. Mit `/btc language AUTO` folgt die Textsprache deiner Minecraft-Sprache, auch nach einem Wechsel im Client. Unterstützt werden Deutsch und Englisch; andere Client-Sprachen verwenden die feste Server-Standardsprache. Eine persönliche Auswahl `de` oder `en` hat immer Vorrang. Als OP aktiviert `/btc global language AUTO` die Erkennung zusätzlich für Spieler mit `DEFAULT`. `/btc global language de` oder `en` deaktiviert diese globale Erkennung und setzt die feste Standardsprache. Das Zahlenformat bleibt davon unabhängig. Kurstafeln und die Konsole verwenden immer die globale Sprache; persönliche Einstellungen werden gespeichert.
+
 Währungscodes: `EUR`, `USD`, `GBP`, `CHF`, `CAD`, `AUD`, `JPY`, `CNY`, `INR`. `BOTH` zeigt EUR und USD; `DEFAULT` übernimmt die globale Auswahl. Preisalarme und `sats` akzeptieren jeweils einen einzelnen Währungscode. Beispiel: `/btc currency CHF`, `/btc sats 10 GBP` oder `/btc alert above 90000 CAD`. Das virtuelle Portfolio bleibt in EUR geführt.
 
 `/btc display actionbar` ohne weitere Argumente behält den gespeicherten Actionbar-Modus bei; bei neuen und älteren Spielerprofilen ist das `continuous`. `/btc display actionbar interval` ohne Minuten behält das bisher gespeicherte persönliche Intervall bei; ohne persönliche Auswahl gilt das globale Intervall. Minuten können nur zusammen mit `interval` angegeben werden. Bei der ersten aktiven Anzeige im Intervallmodus erscheint die Zeile sofort, anschließend im gewählten Abstand kurz mit der normalen Minecraft-Ausblendung. Eine eigene Anzeigedauer wird nicht konfiguriert. Die Anzeige folgt dem persönlichen Intervall unabhängig von API-Aktualisierungen oder manuellen Refreshes. `DEFAULT` verwendet das globale Intervall, anfangs zehn Minuten. Ein ausdrücklich gewähltes persönliches Intervall bleibt bei globalen Änderungen erhalten.
 
-`/btc settings` zeigt bei `DEFAULT` auch die tatsächlich verwendete Währung und Sprache sowie den wirksamen Zustand der automatischen Anzeige. Bleibt eine Anzeige wegen `/btc off`, der Anzeigeform `off` oder global deaktiviertem Chat aus, nennt die Bestätigung den passenden Befehl zum Aktivieren. `/btc status` hilft bei der Kursdiagnose: Es liest den vorhandenen Cache, Anbieter-Datenalter, API-Wartezeit und den Zustand einer laufenden Abfrage, ohne selbst einen Kurs abzurufen. Die Kennzeichnung als aktuell oder veraltet wird beim Anzeigen erneut anhand des Datenalters geprüft.
+Die Actionbar kann unabhängig von ihrem Zeitmodus verkürzt werden: `/btc display actionbar content price` zeigt nur den Preis, `change` zusätzlich die Tagesänderung und `full` die bisherige vollständige Zeile. Bei veralteten Kursen oder fehlendem Anbieter-Zeitstempel zeigen auch die kompakten Varianten einen Statushinweis. Inhalt und Intervall werden getrennt gespeichert; bestehende Profile erhalten `full`. Ein Inhaltswechsel wählt die Anzeigeform Actionbar, schaltet `/btc off` aber nicht ein. Zur Aktivierung gegebenenfalls `/btc on` verwenden.
+
+`/btc settings` zeigt bei `DEFAULT` auch die tatsächlich verwendete Währung und Sprache sowie den wirksamen Zustand der automatischen Anzeige. Bleibt eine Anzeige wegen `/btc off`, der Anzeigeform `off` oder global deaktiviertem Chat aus, nennt die Bestätigung den passenden Befehl zum Aktivieren. `/btc status` hilft bei der Kursdiagnose: Es liest den vorhandenen Cache, Anbieter-Datenalter, API-Wartezeit und den Zustand einer laufenden Abfrage, ohne selbst einen Kurs abzurufen. Es unterscheidet Ratenlimits (HTTP 429), Timeouts, Verbindungs- und HTTP-Fehler, ungültige Antworten und veraltete Anbieterdaten. Cache-Alter, fehlende Zeitstempel, die API-Wartezeit und die separate Sperre für manuellen Refresh werden erklärt. Nach einer erfolgreichen Abfrage werden alte Fehler zurückgesetzt; angezeigte Wartezeiten erlauben einen späteren Abruf und starten ihn nicht automatisch. Die Kennzeichnung als aktuell oder veraltet wird beim Anzeigen erneut anhand des Datenalters geprüft.
 
 Das Portfolio verwendet ausschließlich **Spielgeld**. Es verbindet keine Wallet, führt keine echten Transaktionen aus und setzt vorhandenes Guthaben bei erneutem `start` nicht zurück. Käufe werden auf ganze Satoshis, Verkäufe auf Euro-Cents abgerundet. Mit veralteten oder zeitlich nicht überprüfbaren Kursen wird nicht gehandelt.
 
@@ -103,6 +111,7 @@ Preisalarm und Actionbar sind optional. Ein Alarm beginnt mit einer Baseline bei
 | --- | --- |
 | `/btc interval 1\|5\|10\|30\|60` | Globales Chat-Intervall und Standard für Actionbar-Intervalle ändern |
 | `/btc global currency <CODE>\|BOTH` | Globale Standardwährung ändern |
+| `/btc global language de\|en\|AUTO` | Standardsprache oder automatische Erkennung wählen; Kurstafeln/Konsole nutzen die feste Fallback-Sprache |
 | `/btc refresh` | Frischen Kurs abrufen und an empfangsberechtigte Spieler senden; ein veralteter Ersatzkurs zählt nicht als erfolgreiche Aktualisierung |
 | `/btc on all`, `/btc off all` | Globale regelmäßige Chat-Nachrichten ein-/ausschalten |
 | `/btc board create <name>` | Benannte Kurstafel als TextDisplay am eigenen Standort erstellen |
@@ -113,9 +122,11 @@ Preisalarm und Actionbar sind optional. Ein Alarm beginnt mit einer Baseline bei
 | `/btc player <Name\|UUID> currency <CODE>\|BOTH\|DEFAULT` | Persönliche Währung eines Spielers ändern |
 | `/btc player <Name\|UUID> settings` | Gespeicherte und wirksame Einstellungen sowie aktive/inaktive automatische Anzeige eines Spielers ansehen |
 | `/btc player <Name\|UUID> display chat\|actionbar\|off` | Anzeigeform eines Spielers wählen |
+| `/btc player <Name\|UUID> display actionbar content price\|change\|full` | Actionbar-Inhalt eines Spielers wählen, auch offline |
 | `/btc player <Name\|UUID> display actionbar continuous` | Dauerhafte Actionbar für einen Spieler wählen |
 | `/btc player <Name\|UUID> display actionbar interval [1\|5\|10\|30\|60\|DEFAULT]` | Persönliches Actionbar-Intervall eines Spielers wählen |
 | `/btc player <Name\|UUID> locale <Sprachcode>\|DEFAULT` | Zahlenformat eines Spielers wählen |
+| `/btc player <Name\|UUID> language de\|en\|AUTO\|DEFAULT` | Textsprache eines Spielers wählen, auch offline |
 
 Globale Chat-Deaktivierung lässt persönliche, ausdrücklich aktivierte Actionbars und Alarme bestehen. Individuelle Präferenzen werden dadurch nicht überschrieben. Kurstafeln laden keine Chunks dauerhaft nach und werden nach einem Neustart wiedererkannt. Es werden ausschließlich vom Plugin markierte Anzeigen verwaltet.
 
@@ -125,7 +136,7 @@ Die Spielersteuerung steht OPs, der Konsole und Benutzern mit `bitcoinprice.admi
 
 Die kommentierte [config.yml](src/main/resources/config.yml) enthält alle Optionen. Wesentliche Standardwerte:
 
-- Chat-Intervall und Standard für Actionbar-Intervalle 10 Minuten, Standardwährung EUR, Zahlenformat `de-DE`.
+- Chat-Intervall und Standard für Actionbar-Intervalle 10 Minuten, Standardwährung EUR, Textsprache `de`, Zahlenformat `de-DE`.
 - Gemeinsamer Cache 60 Sekunden. Gleichzeitig laufende Anfragen werden zusammengefasst.
 - API-Timeout 10 Sekunden; globaler Refresh hat 30 Sekunden Wartezeit.
 - Bei API-Fehlern höchstens fünf Minuten alte gespeicherte Daten, ausdrücklich als veraltet gekennzeichnet. Alarme und virtuelle Trades verwenden solche Daten nicht.
@@ -138,6 +149,10 @@ Bei leerem Server ohne geladene Kurstafeln erfolgen keine Hintergrundabfragen. E
 Der frühere Schlüssel `actionbar-seconds` wird ab 2.2 ignoriert und darf aus bestehenden Konfigurationen entfernt werden. Actionbar-Modus und persönliches Minutenintervall stehen in den Spielerpräferenzen. Intern bedeutet ein persönliches Intervall von `0`, dass das globale `price-interval` verwendet wird; im Befehl heißt diese Auswahl `DEFAULT`.
 
 Optional kann ein CoinGecko-Demo-Key mit `api.demo-api-key` oder über `COINGECKO_DEMO_API_KEY` gesetzt werden. Er wird als Header versendet und nicht protokolliert. Keine Zugangsdaten im Repository speichern. HTTP 429 führt zu einer Wartephase; `Retry-After` wird berücksichtigt. Kein sofortiger Wiederholungsversuch durch Befehle.
+
+Die globale Textsprache steht in `language: de` oder `language: en` und kann als OP mit `/btc global language en` ohne Neustart geändert werden. Die optionale globale automatische Erkennung steht in `language-auto-detect: false` und wird durch `/btc global language AUTO` aktiviert; `language` bleibt die Fallback-Sprache für andere Client-Sprachen, Konsole und Kurstafeln. Das Zahlenformat steht weiterhin getrennt in `locale`.
+
+Die mitgelieferten Nachrichtenvorlagen wechseln mit der Sprache. Bereits angepasste `messages.<key>`-Vorlagen bleiben wörtlich erhalten. Für eigene zweisprachige Vorlagen können `messages.de.<key>` und `messages.en.<key>` gesetzt werden (`price`, `actionbar`, `actionbar-price`, `actionbar-change`, `alert`, `board`, `api-error`); sie haben Vorrang vor der gemeinsamen Vorlage. Dynamische Platzhalter wie `{status}`, `{warning}` und `{direction}` folgen weiterhin der ausgewählten Textsprache. `{warning}` bleibt bei frischen Kursen leer und zeigt sonst den Status mit Trennzeichen; die kompakten Standardvorlagen verwenden diesen Platzhalter.
 
 Preis-, Actionbar-, Alarm- und Board-Nachrichten sind in `messages` mit `&`-Farben konfigurierbar. Platzhalter: `{price}`, `{currency}`, `{eur}`, `{usd}`, `{change}`, `{age}`, `{provider_age}`, `{status}`; bei Alarmen zusätzlich `{threshold}` und `{direction}`. Für die gewählte Währung auf Kurstafeln `{price} {currency}` verwenden. Alte Vorlagen mit `{eur}` und `{usd}` bleiben nutzbar und zeigen ausdrücklich diese Währungen. Das Plugin nutzt Adventure-Komponenten.
 

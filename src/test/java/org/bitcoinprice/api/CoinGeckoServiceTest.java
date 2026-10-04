@@ -3,6 +3,10 @@ package org.bitcoinprice.api;
 import com.sun.net.httpserver.HttpServer;
 import org.bitcoinprice.config.ApiSettings;
 import org.bitcoinprice.model.PriceQuote;
+import org.bitcoinprice.presentation.Language;
+import org.bitcoinprice.presentation.ServiceDiagnostics;
+import org.bitcoinprice.api.CoinGeckoService.CacheState;
+import org.bitcoinprice.api.CoinGeckoService.FailureReason;
 import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -71,11 +75,14 @@ class CoinGeckoServiceTest {
             assertTrue(pendingStatus.quote().isEmpty());
             assertEquals(0, pendingStatus.retryAfterSeconds());
             assertEquals(1, requests.get());
+            assertEquals(CacheState.EMPTY, pendingStatus.cacheState());
+            assertEquals(FailureReason.NONE, pendingStatus.lastFailure());
             CompletableFuture<PriceQuote> second = service.fetchBitcoinPrice();
             first.cancel(true); release.countDown();
             assertFalse(second.get(3, TimeUnit.SECONDS).stale());
             for (int i = 0; i < 10; i++) assertFalse(service.fetchBitcoinPrice().get(1, TimeUnit.SECONDS).stale());
             assertEquals(1, requests.get());
+            assertEquals(CacheState.FRESH, service.status().cacheState());
         } finally { release.countDown(); server.stop(0); }
     }
 
@@ -108,12 +115,22 @@ class CoinGeckoServiceTest {
 
             clock.advance(60); responseCode.set(429);
             assertTrue(service.status().quote().orElseThrow().stale());
+            assertEquals(CacheState.CACHE_EXPIRED, service.status().cacheState());
             assertEquals(1, requests.get(), "Inspecting an aged cache must not refresh it");
             assertTrue(service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS).stale());
             var degraded = service.status();
             assertTrue(degraded.quote().orElseThrow().stale());
             assertFalse(degraded.requestInFlight());
             assertEquals(120, degraded.retryAfterSeconds());
+            assertEquals(CacheState.PROVIDER_FAILURE, degraded.cacheState());
+            assertEquals(FailureReason.RATE_LIMIT, degraded.lastFailure());
+            assertEquals(429, degraded.httpStatus());
+            assertEquals(1, degraded.consecutiveFailures());
+            assertEquals(clock.instant(), degraded.failureAt());
+            var diagnostics = ServiceDiagnostics.lines(degraded, Language.ENGLISH);
+            assertTrue(diagnostics.stream().anyMatch(line -> line.contains("rate limit") && line.contains("HTTP 429")));
+            assertTrue(diagnostics.stream().anyMatch(line -> line.contains("120 seconds")));
+            assertEquals(2, requests.get(), "Rendering diagnostics is read-only");
             clock.advance(30);
             assertEquals(90, service.status().retryAfterSeconds());
             clock.advance(91);
@@ -121,6 +138,7 @@ class CoinGeckoServiceTest {
             assertEquals(2, requests.get(), "Status must not retry automatically after the cooldown");
             clock.advance(901);
             assertTrue(service.status().quote().isEmpty());
+            assertEquals(CacheState.EXPIRED, service.status().cacheState());
             assertEquals(2, requests.get(), "Expired cache inspection must remain read-only");
         } finally { server.stop(0); }
     }
@@ -164,6 +182,7 @@ class CoinGeckoServiceTest {
         server.start();
         try (CoinGeckoService service = new CoinGeckoService(settings(url(server), 1000), sample -> { throw new IllegalStateException(); }, LOG, Clock.fixed(NOW, ZoneOffset.UTC))) {
             assertTrue(service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS).stale());
+            assertEquals(CacheState.PROVIDER_TIMESTAMP_MISSING, service.status().cacheState());
             assertTrue(service.fetchBitcoinPrice().get(1, TimeUnit.SECONDS).stale());
             assertEquals(1, requests.get());
         } finally { server.stop(0); }
@@ -185,6 +204,8 @@ class CoinGeckoServiceTest {
             var pending = service.fetchBitcoinPrice();
             assertTrue(entered.await(5, TimeUnit.SECONDS));
             assertThrows(ExecutionException.class, () -> pending.get(5, TimeUnit.SECONDS));
+            assertEquals(FailureReason.TIMEOUT, service.status().lastFailure());
+            assertTrue(ServiceDiagnostics.lines(service.status(), Language.GERMAN).stream().anyMatch(line -> line.contains("Zeitüberschreitung")));
             service.close();
             assertThrows(ExecutionException.class, () -> service.fetchBitcoinPrice().get(1, TimeUnit.SECONDS));
         } finally { service.close(); release.countDown(); server.stop(0); }
@@ -213,7 +234,116 @@ class CoinGeckoServiceTest {
         server.start();
         try (CoinGeckoService service = new CoinGeckoService(settings(url(server), 1000), sample -> fail(), LOG)) {
             assertThrows(ExecutionException.class, () -> service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS));
+            assertEquals(FailureReason.RESPONSE_TOO_LARGE, service.status().lastFailure());
         } finally { server.stop(0); }
+    }
+
+    @Test void diagnosesHttpInvalidAndOutdatedResponsesWithoutExposingRequestDetails() throws Exception {
+        AtomicInteger status = new AtomicInteger();
+        AtomicReference<String> response = new AtomicReference<>();
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            exchange.getResponseHeaders().set("Retry-After", "17");
+            byte[] bytes = response.get().getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status.get(), bytes.length);
+            try (var output = exchange.getResponseBody()) { output.write(bytes); }
+            finally { exchange.close(); }
+        });
+        server.start();
+        record Case(int code, String body, FailureReason reason) { }
+        try {
+            for (Case example : new Case[]{
+                    new Case(429, "limited", FailureReason.RATE_LIMIT),
+                    new Case(503, "unavailable", FailureReason.HTTP_ERROR),
+                    new Case(401, "unauthorized", FailureReason.HTTP_ERROR),
+                    new Case(200, "{}", FailureReason.INVALID_RESPONSE),
+                    new Case(200, body("1", "2", NOW.minusSeconds(601)), FailureReason.OUTDATED_PROVIDER_DATA),
+                    new Case(200, body("1", "2", NOW.plusSeconds(61)), FailureReason.INVALID_RESPONSE)}) {
+                status.set(example.code()); response.set(example.body());
+                ApiSettings settings = new ApiSettings(url(server), 1000, 60, 900, 600, 60, "test-demo-key");
+                try (CoinGeckoService service = new CoinGeckoService(settings, ignored -> fail(), LOG, Clock.fixed(NOW, ZoneOffset.UTC))) {
+                    assertThrows(ExecutionException.class, () -> service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS));
+                    var result = service.status();
+                    assertEquals(example.reason(), result.lastFailure());
+                    assertEquals(example.code(), result.httpStatus());
+                    assertEquals(CacheState.EMPTY, result.cacheState());
+                    assertEquals(1, result.consecutiveFailures());
+                    assertEquals(example.code() == 429 || example.code() == 503 ? 17 : 5, result.retryAfterSeconds());
+                    int count = requests.get();
+                    for (Language language : Language.values()) {
+                        String text = String.join("\n", ServiceDiagnostics.lines(result, language));
+                        assertTrue(text.contains("HTTP " + example.code()));
+                        assertFalse(text.contains("test-demo-key"));
+                        assertFalse(text.contains(url(server)));
+                    }
+                    assertFalse(result.toString().contains("test-demo-key"));
+                    assertEquals(count, requests.get());
+                }
+            }
+        } finally { server.stop(0); }
+    }
+
+    @Test void recoveryClearsFailureAndRefreshCooldownDoesNotInventAnApiError() throws Exception {
+        MutableClock clock = new MutableClock(NOW);
+        AtomicInteger code = new AtomicInteger(429), requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            byte[] bytes = body("90000", "100000", clock.instant()).getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(code.get(), bytes.length);
+            try (var output = exchange.getResponseBody()) { output.write(bytes); }
+            finally { exchange.close(); }
+        });
+        server.start();
+        try (CoinGeckoService service = new CoinGeckoService(settings(url(server), 1000), ignored -> {}, LOG, clock)) {
+            assertThrows(ExecutionException.class, () -> service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS));
+            assertEquals(FailureReason.RATE_LIMIT, service.status().lastFailure());
+            clock.advance(6); code.set(200);
+            assertFalse(service.forceRefresh().get(2, TimeUnit.SECONDS).stale());
+            var recovered = service.status();
+            assertEquals(CacheState.FRESH, recovered.cacheState());
+            assertEquals(FailureReason.NONE, recovered.lastFailure());
+            assertNull(recovered.failureAt());
+            assertNull(recovered.httpStatus());
+            assertEquals(0, recovered.consecutiveFailures());
+            assertEquals(60, recovered.refreshCooldownSeconds());
+            assertThrows(ExecutionException.class, () -> service.forceRefresh().get(1, TimeUnit.SECONDS));
+            assertEquals(FailureReason.NONE, service.status().lastFailure());
+            assertEquals(2, requests.get());
+            assertTrue(ServiceDiagnostics.lines(service.status(), Language.ENGLISH).stream().anyMatch(line -> line.contains("Manual refresh") && line.contains("60 seconds")));
+        } finally { server.stop(0); }
+    }
+
+    @Test void cacheAgeAndConnectionFailuresHaveSeparateDiagnoses() throws Exception {
+        MutableClock clock = new MutableClock(NOW);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicInteger requests = new AtomicInteger();
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            byte[] bytes = body("90000", "100000", NOW.minusSeconds(599)).getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) { output.write(bytes); }
+            finally { exchange.close(); }
+        });
+        server.start();
+        String endpoint = url(server);
+        try (CoinGeckoService service = new CoinGeckoService(settings(endpoint, 1000), ignored -> {}, LOG, clock)) {
+            assertFalse(service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS).stale());
+            clock.advance(2);
+            assertEquals(CacheState.PROVIDER_DATA_OUTDATED, service.status().cacheState());
+            assertEquals(1, requests.get());
+            clock.advance(900);
+            assertEquals(CacheState.EXPIRED, service.status().cacheState());
+        } finally { server.stop(0); }
+        try (CoinGeckoService service = new CoinGeckoService(settings(endpoint, 1000), ignored -> fail(), LOG)) {
+            assertThrows(ExecutionException.class, () -> service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS));
+            assertEquals(FailureReason.NETWORK, service.status().lastFailure());
+            assertNull(service.status().httpStatus());
+            service.close();
+            assertEquals(CacheState.CLOSED, service.status().cacheState());
+        }
     }
 
     private static String url(HttpServer server) { return "http://127.0.0.1:" + server.getAddress().getPort() + "/"; }

@@ -95,7 +95,7 @@ public final class PriceScheduler {
         if (!running || !plugin.getConfigManager().isBroadcastsEnabled()) return;
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (receivesChat(player)) player.sendMessage(plugin.getMessages().quote("price", quote,
-                    plugin.getMessages().currency(player), plugin.getMessages().locale(player)));
+                    plugin.getMessages().currency(player), plugin.getMessages().locale(player), plugin.getMessages().language(player)));
         }
     }
     private void refreshUI() {
@@ -122,8 +122,7 @@ public final class PriceScheduler {
         int minutes = settings.actionbarIntervalMinutes() == 0
                 ? plugin.getConfigManager().getPriceInterval() : settings.actionbarIntervalMinutes();
         if (actionbars.shouldShow(player.getUniqueId(), settings.actionbarMode(), minutes, nowNanos)) {
-            player.sendActionBar(plugin.getMessages().quote("actionbar", quote,
-                    plugin.getMessages().currency(player), plugin.getMessages().locale(player)));
+            player.sendActionBar(plugin.getMessages().actionbar(player, quote));
             actionbarOwners.add(player.getUniqueId());
         }
     }
@@ -138,7 +137,7 @@ public final class PriceScheduler {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (!player.isOnline() || !player.isOp() && !player.hasPermission("bitcoinprice.use")) continue;
             for (var alert : plugin.getPreferences().checkAlerts(player.getUniqueId(), snapshot)) {
-                player.sendMessage(plugin.getMessages().alert(quote, alert, plugin.getMessages().locale(player)));
+                player.sendMessage(plugin.getMessages().alert(quote, alert, plugin.getMessages().locale(player), plugin.getMessages().language(player)));
             }
         }
     }

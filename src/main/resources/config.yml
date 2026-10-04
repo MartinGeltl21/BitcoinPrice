@@ -1,14 +1,20 @@
-# BitcoinPrice 2.2 — bestehende Konfigurationen bleiben lesbar.
+# BitcoinPrice 2.3 — bestehende Konfigurationen bleiben lesbar.
 # Chat-Intervall und DEFAULT für persönliche Actionbar-Intervalle: 1, 5, 10, 30 oder 60 Minuten.
 price-interval: 10
 # EUR, USD, GBP, CHF, CAD, AUD, JPY, CNY, INR oder BOTH (EUR + USD).
 price-currency: EUR
 broadcasts-enabled: true
-# Zahlenformat; Spieler können ihre eigene Sprache auswählen.
+# Sprache der Plugin-Texte: de oder en; persönlich /btc language de|en|AUTO|DEFAULT.
+language: de
+# Optional: Minecraft-Sprache für Spieler mit DEFAULT automatisch erkennen.
+# /btc global language AUTO aktiviert dies; de/en deaktivieren es. Sprache oben bleibt Fallback.
+language-auto-detect: false
+# Zahlenformat (unabhängig von der Textsprache); persönlich /btc locale de-DE|en-US|DEFAULT.
 locale: de-DE
 # Überwacht nur aktive Actionbars/Alarme/Kurstafeln, ohne jeden Spieler abzufragen.
 monitor-seconds: 60
 # Actionbar: /btc display actionbar continuous oder interval [Minuten|DEFAULT].
+# Inhalt: /btc display actionbar content price|change|full. Standard: full.
 # Dauerhafte Anzeige wird jede Sekunde aus dem Cache erneuert (keine HTTP-Anfragen).
 # Der frühere Schlüssel actionbar-seconds wird ignoriert.
 history-hours: 168
@@ -23,6 +29,9 @@ api:
   # Optional: Demo-Key wird als Header gesendet. Niemals im Repository speichern.
   # Alternativ Umgebungsvariable COINGECKO_DEMO_API_KEY verwenden.
   demo-api-key: ''
+# Standardtexte folgen language. Eigene alte messages.<key>-Vorlagen bleiben unverändert.
+# Sprachabhängige Anpassungen optional unter messages.de.<key> oder messages.en.<key>.
+# Schlüssel: price, actionbar, alert, board, api-error, actionbar-price, actionbar-change. Platzhalter bleiben gleich.
 messages:
   prefix: '&6[BitcoinPrice] &r'
   price-color: '&6'

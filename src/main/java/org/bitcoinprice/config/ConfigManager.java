@@ -2,6 +2,7 @@ package org.bitcoinprice.config;
 
 import org.bitcoinprice.BitcoinPrice;
 import org.bitcoinprice.model.CurrencyCatalog;
+import org.bitcoinprice.presentation.Language;
 import org.bukkit.configuration.file.FileConfiguration;
 import java.net.URI;
 import java.util.Locale;
@@ -15,12 +16,13 @@ public final class ConfigManager {
     private ApiSettings apiSettings;
     private boolean broadcastsEnabled;
     private Locale locale;
+    private Language language;
+    private boolean languageAutoDetect;
     private int monitorSeconds;
     private int historyHours;
     private int alertCooldownSeconds;
     private String messagePrefix;
     private String priceColor;
-    private String apiErrorMessage;
 
     public ConfigManager(BitcoinPrice plugin) { this.plugin = plugin; loadConfig(); }
 
@@ -40,6 +42,12 @@ public final class ConfigManager {
             locale = new Locale.Builder().setLanguageTag(localeTag).build();
             if (locale.getLanguage().isBlank()) throw new IllegalArgumentException();
         } catch (RuntimeException invalid) { warn("locale", "de-DE"); locale = Locale.GERMANY; }
+        try { language = Language.parse(config.getString("language", "de")); }
+        catch (IllegalArgumentException invalid) { warn("language", "de"); language = Language.GERMAN; }
+        languageAutoDetect = config.getBoolean("language-auto-detect", false);
+        if (config.contains("language-auto-detect") && !(config.get("language-auto-detect") instanceof Boolean)) {
+            warn("language-auto-detect", "false"); languageAutoDetect = false;
+        }
         monitorSeconds = bounded("monitor-seconds", 60, 30, 3600);
         historyHours = bounded("history-hours", 168, 1, 168);
         alertCooldownSeconds = bounded("alert-cooldown-seconds", 300, 1, 86400);
@@ -62,7 +70,6 @@ public final class ConfigManager {
         apiSettings = new ApiSettings(url, timeout, cache, stale, providerAge, refreshCooldown, key);
         messagePrefix = colors(config.getString("messages.prefix", "&6[BitcoinPrice] &r"));
         priceColor = colors(config.getString("messages.price-color", "&6"));
-        apiErrorMessage = colors(config.getString("messages.api-error", "&cBitcoin-Preis momentan nicht verfügbar. Bitte später erneut versuchen."));
     }
 
     private int bounded(String key, int fallback, int min, int max) {
@@ -88,6 +95,8 @@ public final class ConfigManager {
         plugin.getConfig().set("price-interval", priceInterval);
         plugin.getConfig().set("price-currency", priceCurrency);
         plugin.getConfig().set("broadcasts-enabled", broadcastsEnabled);
+        plugin.getConfig().set("language", language.code());
+        plugin.getConfig().set("language-auto-detect", languageAutoDetect);
         plugin.saveConfig();
     }
 
@@ -109,6 +118,13 @@ public final class ConfigManager {
     public int getApiTimeout() { return apiSettings.timeoutMillis(); }
     public boolean isBroadcastsEnabled() { return broadcastsEnabled; }
     public Locale getLocale() { return locale; }
+    public Language getLanguage() { return language; }
+    public boolean isLanguageAutoDetect() { return languageAutoDetect; }
+    public void setLanguage(String value) {
+        if (value.equalsIgnoreCase("AUTO")) languageAutoDetect = true;
+        else { language = Language.parse(value); languageAutoDetect = false; }
+        saveConfig();
+    }
     public int getMonitorSeconds() { return monitorSeconds; }
     /** Legacy configuration no longer controls per-player display timing. */
     @Deprecated public int getActionbarSeconds() { return 1; }
@@ -116,17 +132,13 @@ public final class ConfigManager {
     public int getAlertCooldownSeconds() { return alertCooldownSeconds; }
     public String getMessagePrefix() { return messagePrefix; }
     public String getPriceColor() { return priceColor; }
-    public String getApiErrorMessage() { return apiErrorMessage; }
+    public String getApiErrorMessage() { return getTemplate("api-error"); }
 
-    /** Additional message keys can be supplied by administrators without a code change. */
-    public String getTemplate(String key) {
-        String fallback = switch (key) {
-            case "price" -> "&6BTC: {price} {currency} &7| 24h {change} | {age} | Quelle {provider_age} {status}";
-            case "actionbar" -> "&6BTC {price} {currency} &7| 24h {change} | {age} {status}";
-            case "alert" -> "&eBTC-Alarm: {price} {currency} | {change} | {provider_age}";
-            case "board" -> "&6Bitcoin\n&f{price} {currency}\n&724h {change}\n{age} | Quelle {provider_age} {status}";
-            default -> "";
-        };
-        return colors(plugin.getConfig().getString("messages." + key, fallback));
+    public String getTemplate(String key) { return getTemplate(key, language); }
+
+    /** Language-specific overrides take priority, preserving existing custom message templates. */
+    public String getTemplate(String key, Language selected) {
+        return selected.template(key, plugin.getConfig().getString("messages." + key),
+                plugin.getConfig().getString("messages." + selected.code() + "." + key));
     }
 }

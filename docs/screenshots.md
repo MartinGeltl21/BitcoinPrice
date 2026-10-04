@@ -10,6 +10,15 @@ Drei echte Aufnahmen reichen: **Kurstafel**, **Actionbar** und **Chat-Kurs**. Ei
 - Als OP die folgenden Befehle im Spiel ausführen. Globale Änderungen wirken auch für andere Spieler; eine zuvor verwendete globale Währung anschließend wiederherstellen.
 - Reale Kurse dürfen in den Bildern stehen. Es ist kein bestimmter Bitcoin-Preis erforderlich, und für diese Aufnahmen müssen keine Alarme ausgelöst werden.
 
+Für deutsche Aufnahmen `/btc language de` und `/btc locale de-DE` wählen. Für englische Aufnahmen:
+
+```text
+/btc language en
+/btc locale en-US
+```
+
+Damit wechseln auch „aktuell“/„veraltet“ zu „current“/„stale“. Für eine englische Kurstafel zusätzlich als OP `/btc global language en` verwenden; Tafeln nutzen die globale Sprache. Eigene Nachrichtenvorlagen unter `messages` gegebenenfalls mit einer englischen Variante unter `messages.en` ergänzen. Vorherige Sprache und Locale notieren und nach den Aufnahmen wiederherstellen, ebenso eine geänderte globale Sprache.
+
 ## 1. Kurstafel — `board.png`
 
 ```text
@@ -27,11 +36,14 @@ Die Tafel mit etwas Landschaft aufnehmen. **F1** kann für diese Aufnahme die ü
 ```text
 /btc currency EUR
 /btc display actionbar continuous
+/btc display actionbar content full
 /btc on
 /btc
 ```
 
 Den Chat schließen, kurz warten und aufnehmen, sobald die Kurszeile **oberhalb der Schnellzugriffsleiste** erscheint. Im Modus `continuous` wird sie jede Sekunde aus dem Cache erneuert und bleibt sichtbar. Hier **F1 nicht verwenden**, da die Actionbar zur Benutzeroberfläche gehört. Ein ruhiger Hintergrund erleichtert das Lesen.
+
+Für einen schmaleren Ausschnitt `/btc display actionbar content price` (nur Preis) oder `change` (Preis + Tagesänderung) verwenden. `full` stellt die vollständige Zeile wieder her. Für reproduzierbare Spracheinstellungen ausdrücklich `de` oder `en` wählen; `AUTO` folgt der Minecraft-Sprache.
 
 Für eine zusätzliche Aufnahme des Intervallmodus `/btc display actionbar interval 1` wählen und die nächste automatische Anzeige abwarten. Sie erscheint einmal pro Minute kurz und blendet anschließend aus; manuelle Kursabfragen lösen keine zusätzliche Intervallanzeige aus.
 
@@ -55,6 +67,6 @@ Alternativ `/btchelp 1`; für eine andere Seite `/btc help 2`. Eine einzelne Sei
 
 ## Danach
 
-Die eigenen vorherigen Einstellungen mit `/btc currency <vorheriger CODE>`, `/btc display <vorheriger Modus>` und `/btc on` beziehungsweise `/btc off` wiederherstellen. Bei einer vorherigen Actionbar-Auswahl auch `continuous` beziehungsweise `interval` und das persönliche Minutenintervall oder `DEFAULT` wiederherstellen. Eine nur zum Fotografieren erstellte Tafel bei Bedarf entfernen.
+Die eigenen vorherigen Einstellungen mit `/btc currency <vorheriger CODE>`, `/btc display <vorheriger Modus>` und `/btc on` beziehungsweise `/btc off` wiederherstellen. Bei einer vorherigen Actionbar-Auswahl auch `continuous` beziehungsweise `interval` und das persönliche Minutenintervall oder `DEFAULT` sowie den vorherigen Actionbar-Inhalt (`price`, `change` oder `full`) wiederherstellen. Eine nur zum Fotografieren erstellte Tafel bei Bedarf entfernen.
 
 Die Bilder können im Chat hochgeladen werden. Vorgesehene Repository-Dateien sind `docs/assets/board.png`, `docs/assets/actionbar.png`, `docs/assets/chat.png` und optional `docs/assets/help.png`. Diese Dateien werden erst nach Erhalt und Prüfung echter Bilder in die README eingebunden. Bis dahin gibt es keine leeren Bildverweise.

@@ -33,6 +33,80 @@ class PlayerPreferencesServiceTest {
         return new PriceSnapshot(new BigDecimal(eur), new BigDecimal(usd), null, null, clock.now, clock.now);
     }
 
+    @Test void personalLanguageSurvivesOtherPreferenceChangesAndRestartIndependentlyOfLocale() {
+        UUID other = UUID.randomUUID();
+        Preferences selected;
+        try (PlayerPreferencesService service = service()) {
+            service.setLanguage(player, "en-US");
+            service.setLocale(player, "de-DE");
+            service.setNotifications(player, false);
+            service.setCurrency(player, "GBP");
+            service.setDisplay(player, DisplayMode.CHAT);
+            service.setActionbar(player, ActionbarMode.INTERVAL, 5);
+            selected = service.get(player);
+            assertEquals("en", selected.language());
+            assertEquals("de-DE", selected.locale());
+            assertEquals("DEFAULT", service.get(other).language());
+        }
+        try (PlayerPreferencesService service = service()) {
+            assertEquals(selected, service.get(player));
+            assertEquals(Preferences.DEFAULTS, service.get(other));
+            service.setLanguage(player, "DEFAULT");
+            assertEquals("DEFAULT", service.get(player).language());
+            assertEquals("de-DE", service.get(player).locale());
+            assertEquals(ActionbarMode.INTERVAL, service.get(player).actionbarMode());
+        }
+        try (PlayerPreferencesService service = service()) {
+            assertEquals("DEFAULT", service.get(player).language());
+            assertEquals("de-DE", service.get(player).locale());
+        }
+    }
+
+    @Test void invalidLanguageCannotPartiallyChangePreferences() {
+        try (PlayerPreferencesService service = service()) {
+            service.setLanguage(player, "en");
+            Preferences original = service.get(player);
+            for (String invalid : List.of("fr", "US", "en_US", "")) {
+                assertThrows(IllegalArgumentException.class, () -> service.setLanguage(player, invalid));
+                assertEquals(original, service.get(player));
+            }
+        }
+    }
+
+    @Test void automaticLanguageAndCompactContentSurviveAllSettersAndRestart() {
+        UUID other = UUID.randomUUID();
+        Preferences selected;
+        try (PlayerPreferencesService service = service()) {
+            service.setLanguage(player, "auto");
+            service.setActionbar(player, ActionbarMode.INTERVAL, 5);
+            service.setActionbarContent(player, ActionbarContent.PRICE);
+            service.setCurrency(player, "JPY");
+            service.setLocale(player, "en-US");
+            service.setNotifications(player, false);
+            service.setDisplay(player, DisplayMode.CHAT);
+            service.setActionbar(player, ActionbarMode.INTERVAL, 30);
+            service.setLanguage(player, "de");
+            service.setLanguage(player, "AUTO");
+            selected = service.get(player);
+            assertEquals(ActionbarContent.PRICE, selected.actionbarContent());
+            assertEquals("AUTO", selected.language());
+            assertEquals(ActionbarMode.INTERVAL, selected.actionbarMode());
+            assertEquals(30, selected.actionbarIntervalMinutes());
+            assertEquals("en-US", selected.locale());
+            assertEquals(ActionbarContent.FULL, service.get(other).actionbarContent());
+            assertThrows(NullPointerException.class, () -> service.setActionbarContent(player, null));
+            assertEquals(selected, service.get(player));
+        }
+        try (PlayerPreferencesService service = service()) {
+            assertEquals(selected, service.get(player));
+            assertEquals(Preferences.DEFAULTS, service.get(other));
+            service.setActionbarContent(player, ActionbarContent.CHANGE);
+            assertEquals(ActionbarMode.INTERVAL, service.get(player).actionbarMode());
+            assertEquals(30, service.get(player).actionbarIntervalMinutes());
+            assertFalse(service.get(player).notifications());
+        }
+    }
+
     @Test void settingsAndPortfolioSurviveCloseAndReopenWithoutReset() throws Exception {
         PortfolioBalance balance;
         try (PlayerPreferencesService service = service()) {
@@ -121,6 +195,8 @@ class PlayerPreferencesServiceTest {
                 .put("players", new org.json.JSONObject().put(player.toString(), legacyPlayer)).toString());
         try (PlayerPreferencesService service = service()) {
             assertEquals(new Preferences(false, "USD", DisplayMode.ACTIONBAR, "en-US", ActionbarMode.CONTINUOUS, 0), service.get(player));
+            assertEquals(ActionbarContent.FULL, service.get(player).actionbarContent());
+            assertEquals("DEFAULT", service.get(player).language());
             service.setActionbar(player, ActionbarMode.INTERVAL, 1);
         }
         try (PlayerPreferencesService service = service()) {

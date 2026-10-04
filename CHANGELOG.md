@@ -5,6 +5,15 @@ Alle wichtigen Änderungen am BitcoinPrice-Plugin werden in dieser Datei dokumen
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-10-04
+
+- Optionale automatische Textsprache aus der Minecraft-Sprache (`/btc language AUTO`, serverweit `/btc global language AUTO`); ausdrücklich gewählte Sprachen behalten Vorrang, andere Client-Sprachen verwenden die Server-Standardsprache.
+- Gespeicherte Actionbar-Inhalte `price`, `change` und `full`, unabhängig vom Zeitmodus; kompakte Anzeigen kennzeichnen weiterhin veraltete oder zeitlich unbekannte Kurse.
+- `/btc status` erklärt API-Ratenlimits, Timeouts, Verbindungs-/HTTP-Fehler, ungültige Antworten, veraltete Anbieterdaten und Cache-Zustände sowie getrennte API-/Refresh-Wartezeiten, ohne eine Abfrage auszulösen.
+
+- Deutsch und Englisch für alle Plugin-Texte; persönliche Sprache mit `/btc language de|en|AUTO|DEFAULT`, globale Sprache mit `/btc global language de|en|AUTO` und OP-Steuerung über `/btc player <Name|UUID> language`.
+- Textsprache unabhängig vom Zahlenformat; Statuswörter, Hilfe, Befehlsantworten, Actionbar, Alarme und Kurstafeln werden übersetzt. Bestehende Spielerprofile übernehmen die globale Sprache, eigene Nachrichtenvorlagen bleiben erhalten.
+
 ## [2.2.0] - 2026-10-04
 
 ### Hinzugefügt

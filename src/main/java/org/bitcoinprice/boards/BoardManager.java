@@ -1,5 +1,7 @@
 package org.bitcoinprice.boards;
 
+import org.bitcoinprice.presentation.MessageException;
+
 import org.bitcoinprice.BitcoinPrice;
 import org.bitcoinprice.model.PriceQuote;
 import net.kyori.adventure.text.Component;
@@ -92,18 +94,18 @@ public final class BoardManager implements Listener, AutoCloseable {
     }
     private static String validateName(String name) {
         String normalized = name.toLowerCase(java.util.Locale.ROOT);
-        if (!normalized.matches("[a-z0-9_-]{1,32}")) throw new IllegalArgumentException("Tafelname: 1–32 Zeichen (a–z, 0–9, _, -).");
+        if (!normalized.matches("[a-z0-9_-]{1,32}")) throw new MessageException("error.board.name");
         return normalized;
     }
     public void create(Player player, String rawName) {
         checkWritable(); String name = validateName(rawName);
-        if (boards.containsKey(name)) throw new IllegalArgumentException("Dieser Tafelname existiert bereits.");
-        if (boards.size() >= 100) throw new IllegalArgumentException("Höchstens 100 Kurstafeln erlaubt.");
+        if (boards.containsKey(name)) throw new MessageException("error.board.exists");
+        if (boards.size() >= 100) throw new MessageException("error.board.limit");
         Location location = player.getLocation().clone().add(0, 2, 0);
         World world = location.getWorld();
         Board board = new Board(name, location.getWorld().getUID(), location.getX(), location.getY(), location.getZ(), null);
         if (!world.isChunkLoaded(board.chunkX(), board.chunkZ()) || !world.getChunkAt(board.chunkX(), board.chunkZ()).isEntitiesLoaded())
-            throw new IllegalArgumentException("Der Chunk ist noch nicht vollständig geladen. Bitte gleich erneut versuchen.");
+            throw new MessageException("error.board.chunk");
         Board previousRemoval = removed.remove(name);
         boards.put(name, board);
         TextDisplay display = null;
@@ -138,7 +140,7 @@ public final class BoardManager implements Listener, AutoCloseable {
                 entity.setPersistent(true); entity.setInvulnerable(true); entity.setGravity(false);
                 entity.setBillboard(Display.Billboard.CENTER); entity.setAlignment(TextDisplay.TextAlignment.CENTER);
                 entity.setLineWidth(300); entity.setViewRange(0.5f); entity.setShadowed(true);
-                entity.text(Component.text("BitcoinPrice\nWarte auf Kursdaten …"));
+                entity.text(Component.text(plugin.getConfigManager().getLanguage().text("board.waiting")));
             });
             board.entity = display.getUniqueId(); return display;
         } finally { board.creating = false; }
@@ -191,7 +193,7 @@ public final class BoardManager implements Listener, AutoCloseable {
         Component text = plugin.getMessages().quote("board", quote, plugin.getConfigManager().getPriceCurrency(), plugin.getConfigManager().getLocale());
         updateText(text);
     }
-    private static Component unavailableText() { return Component.text("BitcoinPrice\nKeine aktuellen Kursdaten verfügbar"); }
+    private Component unavailableText() { return Component.text(plugin.getConfigManager().getLanguage().text("board.unavailable")); }
     public void showUnavailable() {
         if (!closed && writable) updateText(unavailableText());
     }
@@ -209,7 +211,7 @@ public final class BoardManager implements Listener, AutoCloseable {
         for (Chunk chunk : event.getWorld().getLoadedChunks()) reconcile(chunk);
     }
     private void checkWritable() {
-        if (closed || !writable) throw new IllegalArgumentException("Kurstafeldatei ist nicht beschreibbar. Bitte Serverlog prüfen.");
+        if (closed || !writable) throw new MessageException("error.board.writable");
     }
     private void save() {
         if (!writable) return;
@@ -221,7 +223,7 @@ public final class BoardManager implements Listener, AutoCloseable {
             Files.writeString(temp, yaml.saveToString(), StandardCharsets.UTF_8);
             try { Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
             catch (AtomicMoveNotSupportedException ex) { Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING); }
-        } catch (IOException ex) { throw new IllegalArgumentException("Kurstafel konnte nicht gespeichert werden.", ex); }
+        } catch (IOException ex) { throw new MessageException("error.board.save", ex); }
     }
     private static void write(YamlConfiguration yaml, String prefix, Map<String, Board> source) {
         for (Board board : source.values()) {
