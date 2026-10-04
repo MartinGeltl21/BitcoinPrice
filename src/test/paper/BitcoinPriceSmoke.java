@@ -1,9 +1,9 @@
-package me.martingeltl.bitcoin.smoke;
+package org.bitcoinprice.smoke;
 
 import com.sun.net.httpserver.HttpServer;
-import me.martingeltl.bitcoin.BitcoinPrice;
-import me.martingeltl.bitcoin.model.PriceSnapshot;
-import me.martingeltl.bitcoin.preferences.DisplayMode;
+import org.bitcoinprice.BitcoinPrice;
+import org.bitcoinprice.model.PriceSnapshot;
+import org.bitcoinprice.preferences.DisplayMode;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
@@ -28,12 +28,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Test-only plugin: exercises the real Paper APIs, without requiring a connected client. */
 public final class BitcoinPriceSmoke extends JavaPlugin {
     private static final UUID OWNER = UUID.fromString("ddc57a9b-759f-4251-92be-ac1707413661");
+    private static final UUID OFFLINE_TARGET = UUID.fromString("b3a3ee0f-cd0e-40f5-9c55-c92ad57a5044");
     private final AtomicInteger requests = new AtomicInteger();
     private final List<String> received = new ArrayList<>();
     private HttpServer http;
     private BitcoinPrice plugin;
     private Player player;
     private boolean admin;
+    private boolean op;
     private int passed;
     private long sampleSequence;
 
@@ -42,8 +44,9 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
             http = HttpServer.create(new InetSocketAddress("127.0.0.1", 28761), 0);
             http.createContext("/price", exchange -> {
                 requests.incrementAndGet();
-                String body = "{\"bitcoin\":{\"eur\":80000,\"usd\":90000,\"eur_24h_change\":2.5,"
-                        + "\"usd_24h_change\":2.1,\"last_updated_at\":" + Instant.now().getEpochSecond() + "}}";
+                String body = "{\"bitcoin\":{\"eur\":80000,\"usd\":90000,\"gbp\":70000,\"chf\":75000,\"cad\":120000,\"aud\":130000,"
+                        + "\"jpy\":14000000,\"cny\":600000,\"inr\":7400000,\"eur_24h_change\":2.5,\"usd_24h_change\":2.1,"
+                        + "\"gbp_24h_change\":3.5,\"jpy_24h_change\":1.0,\"last_updated_at\":" + Instant.now().getEpochSecond() + "}}";
                 byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
                 try (var output = exchange.getResponseBody()) { output.write(bytes); }
@@ -59,8 +62,8 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
             return switch (method.getName()) {
                 case "getUniqueId" -> OWNER;
                 case "getName" -> "BitcoinSmoke";
-                case "hasPermission" -> "bitcoinprice.use".equals(args[0]) || admin;
-                case "isOp" -> admin;
+                case "hasPermission" -> "bitcoinprice.use".equals(args[0]) && !op || admin;
+                case "isOp" -> op || admin;
                 case "isOnline", "isValid" -> true;
                 case "getLocation" -> new Location(Bukkit.getWorlds().getFirst(), 0.5, 80, 0.5);
                 case "getWorld" -> Bukkit.getWorlds().getFirst();
@@ -96,6 +99,9 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
             Bukkit.getWorlds().getFirst().getChunkAt(0, 0).getEntities(); // Test explicitly loads the board's chunk and entities.
             check(!plugin.getPreferences().get(OWNER).notifications(), "notification off restored after restart");
             check(plugin.getPreferences().get(OWNER).currency().equals("USD"), "personal currency restored");
+            check(!plugin.getPreferences().get(OFFLINE_TARGET).notifications()
+                            && plugin.getPreferences().get(OFFLINE_TARGET).currency().equals("GBP"),
+                    "admin-selected offline UUID notification/currency settings restored");
             check(plugin.getPreferences().get(OWNER).display() == DisplayMode.ACTIONBAR, "display restored");
             check(plugin.getPreferences().getPortfolio(OWNER).orElseThrow().bitcoin().compareTo(new BigDecimal("0.001")) == 0,
                     "portfolio restored without resetting balance");
@@ -122,10 +128,17 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         command(player, "refresh");
         command(player, "off", "all");
         command(player, "board", "create", "forbidden");
+        command(player, "player", OFFLINE_TARGET.toString(), "off");
+        command(player, "player", OFFLINE_TARGET.toString(), "currency", "GBP");
         check(plugin.getConfigManager().getPriceInterval() == interval && plugin.getConfigManager().getPriceCurrency().equals("EUR"),
                 "non-admin cannot change global settings");
         check(requests.get() == 0 && plugin.getConfigManager().isBroadcastsEnabled() && plugin.getBoards().names().isEmpty(),
                 "non-admin cannot refresh, disable all, or create boards");
+        check(plugin.getPreferences().get(OFFLINE_TARGET).notifications()
+                        && plugin.getPreferences().get(OFFLINE_TARGET).currency().equals("DEFAULT"),
+                "non-admin cannot change another player's notifications or currency");
+        check(!plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc", new String[]{""}).contains("player"),
+                "non-admin completion hides target-player administration");
         command(player, "unknown-subcommand");
         check(requests.get() == 0, "unknown commands never request HTTP");
         command(player, "currency", "USD");
@@ -139,6 +152,8 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
             if (error != null) { fail(error); return; }
             guarded(() -> {
                 check(!quote.stale(), "fresh provider timestamp accepted");
+                check(quote.snapshot().supports("GBP") && quote.snapshot().price("GBP").compareTo(new BigDecimal("70000")) == 0,
+                        "extended provider response includes actual GBP price");
                 Bukkit.getScheduler().runTaskLater(this, () -> guarded(this::withQuote), 2);
             });
         }));
@@ -167,6 +182,41 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         command(player, "portfolio", "buy", "80");
         check(prefs.getPortfolio(OWNER).orElseThrow().bitcoin().compareTo(new BigDecimal("0.001")) == 0,
                 "virtual portfolio buys using the shared EUR quote");
+        op = true; // Explicitly exercise OP while bitcoinprice.admin permission remains false.
+        check(!player.hasPermission("bitcoinprice.admin") && !player.hasPermission("bitcoinprice.use") && player.isOp(),
+                "fixture distinguishes OP from both admin and use permissions");
+        command(player, "player", "BitcoinSmoke", "on");
+        check(prefs.get(OWNER).notifications(), "OP can enable individual player using exact name");
+        command(player, "player", OWNER.toString(), "off");
+        check(!prefs.get(OWNER).notifications(), "OP can disable individual player using UUID");
+        command(player, "player", OWNER.toString(), "currency", "GBP");
+        check(prefs.get(OWNER).currency().equals("GBP") && plugin.getConfigManager().getPriceCurrency().equals("EUR"),
+                "OP selects individual GBP without changing global currency");
+        command(player);
+        check(received.stream().anyMatch(message -> message.contains("70,000.00 GBP") && message.contains("+3.50%")),
+                "GBP display uses GBP quote and GBP daily change rather than EUR fallback");
+        command(player, "history", "24h");
+        check(received.stream().anyMatch(message -> message.contains("Verlauf GBP") && message.contains("70,000.00")),
+                "history renders stored GBP samples");
+        command(player, "sats", "7", "GBP");
+        check(received.stream().anyMatch(message -> message.contains("10,000 sats")), "GBP satoshi conversion uses GBP quote");
+        command(player, "currency", "JPY");
+        command(player);
+        check(received.stream().anyMatch(message -> message.contains("14,000,000 JPY") && !message.contains("14,000,000.00")),
+                "JPY uses ISO zero decimal precision");
+        command(player, "currency", "USD"); // Existing owner restart expectations stay unchanged.
+        command(player, "player", OFFLINE_TARGET.toString(), "off");
+        command(player, "player", OFFLINE_TARGET.toString(), "currency", "GBP");
+        command(player, "player", OFFLINE_TARGET.toString(), "settings");
+        check(!prefs.get(OFFLINE_TARGET).notifications() && prefs.get(OFFLINE_TARGET).currency().equals("GBP"),
+                "OP persists individual offline UUID preferences without profile lookup");
+        command(player, "player", "UnbekanntSmoke", "off");
+        check(received.getLast().contains("unbekannt") && requests.get() == 1,
+                "unknown exact name fails locally without profile or price request");
+        check(plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc", new String[]{"player", ""}).contains("BitcoinSmoke")
+                        && plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc", new String[]{"player", OWNER.toString(), "currency", ""}).contains("GBP"),
+                "OP completion includes exact player names and extended currency choices");
+        op = false;
         admin = true;
         command(player, "board", "create", "smoke");
         check(plugin.getBoards().names().contains("smoke"), "admin creates named board");

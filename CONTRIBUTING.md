@@ -6,7 +6,7 @@ Vielen Dank für dein Interesse an der Verbesserung des BitcoinPrice Plugins! Hi
 
 ### Fehler melden
 
-Wenn du einen Fehler findest, erstelle bitte ein Issue im [Issue-Tracker](https://github.com/MartinGeltl21/BitcoinPrice/issues) mit folgenden Informationen:
+Wenn du einen Fehler findest, erstelle bitte ein Issue im Issue-Tracker dieses Repositorys mit folgenden Informationen:
 
 1. Eine klare und beschreibende Überschrift
 2. Eine detaillierte Beschreibung des Fehlers

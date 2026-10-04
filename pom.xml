@@ -4,14 +4,13 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>me.martingeltl.bitcoin</groupId>
+    <groupId>org.bitcoinprice</groupId>
     <artifactId>BitcoinPrice</artifactId>
-    <version>2.0.0</version>
+    <version>2.1.0</version>
     <packaging>jar</packaging>
 
     <name>BitcoinPrice</name>
     <description>Ein Plugin, das den aktuellen Bitcoin-Preis von der CoinGecko API abruft</description>
-    <url>https://github.com/MartinGeltl21/BitcoinPrice</url>
 
     <properties>
         <java.version>25</java.version>
@@ -75,7 +74,7 @@
                             <relocations>
                                 <relocation>
                                     <pattern>org.json</pattern>
-                                    <shadedPattern>me.martingeltl.bitcoin.internal.json</shadedPattern>
+                                    <shadedPattern>org.bitcoinprice.internal.json</shadedPattern>
                                 </relocation>
                             </relocations>
                         </configuration>

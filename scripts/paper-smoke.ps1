@@ -72,7 +72,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRepo 'src/test/paper/plugin.yml') -Destination (Join-Path $taskClasses 'plugin.yml') -Force
     & "$env:JAVA_HOME/bin/jar.exe" --create --file (Join-Path $taskWorkspace 'plugins/BitcoinPriceSmoke.jar') -C $taskClasses .
     if ($LASTEXITCODE -ne 0) { throw 'Paper test plugin packaging failed.' }
-    Copy-Item -LiteralPath (Join-Path $taskRepo 'target/BitcoinPrice-2.0.0.jar') -Destination (Join-Path $taskWorkspace 'plugins/BitcoinPrice.jar') -Force
+    Copy-Item -LiteralPath (Join-Path $taskRepo 'target/BitcoinPrice-2.1.0.jar') -Destination (Join-Path $taskWorkspace 'plugins/BitcoinPrice.jar') -Force
 } finally { Pop-Location }
 Push-Location $taskWorkspace
 try {

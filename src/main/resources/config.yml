@@ -1,6 +1,7 @@
-# BitcoinPrice 2.0 — bestehende 1.x-Konfigurationen bleiben lesbar.
+# BitcoinPrice 2.1 — bestehende Konfigurationen bleiben lesbar.
 # Globale Chat-Ausgabe: 1, 5, 10, 30 oder 60 Minuten.
 price-interval: 10
+# EUR, USD, GBP, CHF, CAD, AUD, JPY, CNY, INR oder BOTH (EUR + USD).
 price-currency: EUR
 broadcasts-enabled: true
 # Zahlenformat; Spieler können ihre eigene Sprache auswählen.
@@ -12,7 +13,7 @@ actionbar-seconds: 5
 history-hours: 168
 alert-cooldown-seconds: 300
 api:
-  url: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur,usd&precision=2&include_24hr_change=true&include_last_updated_at=true'
+  url: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur,usd,gbp,chf,cad,aud,jpy,cny,inr&precision=2&include_24hr_change=true&include_last_updated_at=true'
   timeout: 10000
   cache-seconds: 60
   max-stale-seconds: 300
@@ -28,4 +29,4 @@ messages:
   price: 'Bitcoin: {price} {currency} | 24h: {change} | {status} | Abruf: {age} | Kursstand: {provider_age}'
   actionbar: '&6BTC {price} {currency} &7| 24h: {change} | {status}'
   alert: '&ePreisalarm: BTC {price} {currency} — {direction} {threshold}'
-  board: "&6Bitcoin\n&f{eur} EUR / {usd} USD\n&724h: {change}\n&7{status} | Kursstand: {provider_age}"
+  board: "&6Bitcoin\n&f{price} {currency}\n&724h: {change}\n&7{status} | Kursstand: {provider_age}"

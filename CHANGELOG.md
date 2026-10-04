@@ -5,6 +5,19 @@ Alle wichtigen Änderungen am BitcoinPrice-Plugin werden in dieser Datei dokumen
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-10-04
+
+### Hinzugefügt
+- OP- und Admin-Steuerung für Intervall-Benachrichtigungen und persönliche Währungen einzelner Spieler, einschließlich gespeicherter UUID-Profile.
+- Währungen GBP, CHF, CAD, AUD, JPY, CNY und INR zusätzlich zu EUR und USD für Kurse, Alarme, Satoshi-Umrechnung und Anzeigen.
+
+### Geändert
+- OPs können alle Plugin-Funktionen unabhängig von abweichenden Permission-Zuweisungen verwenden.
+- Neutrale Projektmetadaten und Java-Packages unter `org.bitcoinprice`; Klarname und persönliche Hostnamen aus aktuellen Projektdateien entfernt.
+- Kurstafel-Standardvorlage zeigt die global gewählte Währung; bestehende Vorlagen bleiben kompatibel.
+- Gemeinsame API-Abfrage erweitert die Währungsliste bestehender URLs ohne zusätzliche Anfragen.
+- Persönliche Aktivierung/Deaktivierung ändert nur Intervall-Benachrichtigungen, keine Alarme, Währung oder Portfolioguthaben.
+
 ## [2.0.0] - 2026-10-04
 
 ### Geändert
