@@ -1,5 +1,7 @@
 package org.bitcoinprice.model;
 
+import org.bitcoinprice.presentation.MessageException;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Locale;
@@ -58,12 +60,12 @@ public record PriceSnapshot(Map<String, BigDecimal> prices, Map<String, BigDecim
 
     public BigDecimal price(String currency) {
         BigDecimal value = prices.get(currency.toUpperCase(Locale.ROOT));
-        if (value == null) throw new IllegalArgumentException("Kein Kurs für " + currency + " verfügbar.");
+        if (value == null) throw new MessageException("error.price.currency", currency);
         return value;
     }
 
     public BigDecimal change24h(String currency) {
-        if (!supports(currency)) throw new IllegalArgumentException("Kein Kurs für " + currency + " verfügbar.");
+        if (!supports(currency)) throw new MessageException("error.price.currency", currency);
         return changes24h.get(currency.toUpperCase(Locale.ROOT));
     }
     public boolean supports(String currency) { return currency != null && prices.containsKey(currency.toUpperCase(Locale.ROOT)); }

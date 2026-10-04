@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -45,6 +46,9 @@ public final class CoinGeckoService implements AutoCloseable {
     private int failures;
     private boolean cachedDegraded;
     private boolean closed;
+    private FailureReason lastFailure = FailureReason.NONE;
+    private Integer lastFailureHttpStatus;
+    private Instant lastFailureAt;
 
     public CoinGeckoService(ApiSettings settings, Consumer<PriceSnapshot> callback, Logger logger) {
         this(settings, callback, logger, Clock.systemUTC());
@@ -58,12 +62,42 @@ public final class CoinGeckoService implements AutoCloseable {
     public CompletableFuture<PriceQuote> forceRefresh() { return request(true); }
 
     /** Public diagnostics contain cached data only, without provider URLs or credentials. */
-    public record ServiceStatus(Optional<PriceQuote> quote, boolean requestInFlight, long retryAfterSeconds) { }
+    public enum FailureReason { NONE, RATE_LIMIT, TIMEOUT, NETWORK, HTTP_ERROR, INVALID_RESPONSE, OUTDATED_PROVIDER_DATA, RESPONSE_TOO_LARGE }
+    public enum CacheState { EMPTY, FRESH, CACHE_EXPIRED, PROVIDER_TIMESTAMP_MISSING, PROVIDER_DATA_OUTDATED, PROVIDER_FAILURE, EXPIRED, CLOSED }
+    public record ServiceStatus(Optional<PriceQuote> quote, boolean requestInFlight, long retryAfterSeconds,
+                                CacheState cacheState, FailureReason lastFailure, Integer httpStatus,
+                                Instant failureAt, int consecutiveFailures, long refreshCooldownSeconds) { }
+
+    private static final class ProviderException extends IOException {
+        private final FailureReason reason;
+        ProviderException(FailureReason reason) { super(reason.name()); this.reason = reason; }
+    }
 
     /** Inspect the cache and retry state without starting a request or changing its cooldown. */
     public synchronized ServiceStatus status() {
-        long retrySeconds = closed ? 0 : Math.max(0, Duration.between(clock.instant(), nextAttempt).getSeconds());
-        return new ServiceStatus(cachedQuote(), !closed && inFlight != null && !inFlight.isDone(), retrySeconds);
+        Instant now = clock.instant();
+        Optional<PriceQuote> quote = cachedQuote();
+        long retrySeconds = closed ? 0 : secondsUntil(now, nextAttempt);
+        long refreshSeconds = closed || lastForced == null ? 0 : secondsUntil(now, lastForced.plusSeconds(settings.refreshCooldownSeconds()));
+        return new ServiceStatus(quote, !closed && inFlight != null && !inFlight.isDone(), retrySeconds,
+                cacheState(now, quote), lastFailure, lastFailureHttpStatus, lastFailureAt, failures, refreshSeconds);
+    }
+
+    private static long secondsUntil(Instant now, Instant until) {
+        if (!now.isBefore(until)) return 0;
+        Duration remaining = Duration.between(now, until);
+        return remaining.getSeconds() + (remaining.getNano() == 0 ? 0 : 1);
+    }
+
+    private CacheState cacheState(Instant now, Optional<PriceQuote> quote) {
+        if (closed) return CacheState.CLOSED;
+        if (cached == null) return CacheState.EMPTY;
+        if (quote.isEmpty()) return CacheState.EXPIRED;
+        if (cached.providerUpdatedAt() == null) return CacheState.PROVIDER_TIMESTAMP_MISSING;
+        if (Duration.between(cached.providerUpdatedAt(), now).getSeconds() > settings.maxProviderAgeSeconds())
+            return CacheState.PROVIDER_DATA_OUTDATED;
+        if (cachedDegraded) return CacheState.PROVIDER_FAILURE;
+        return quote.get().stale() ? CacheState.CACHE_EXPIRED : CacheState.FRESH;
     }
 
     private synchronized CompletableFuture<PriceQuote> request(boolean force) {
@@ -107,6 +141,7 @@ public final class CoinGeckoService implements AutoCloseable {
     private void fetch(CompletableFuture<PriceQuote> future) {
         HttpURLConnection connection = null;
         long retryAfter = 0;
+        Integer responseStatus = null;
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(settings.timeoutMillis());
         try {
             connection = (HttpURLConnection) URI.create(settings.url()).toURL().openConnection();
@@ -124,11 +159,12 @@ public final class CoinGeckoService implements AutoCloseable {
             connection.connect();
             connection.setReadTimeout(remainingMillis(deadline));
             int status = connection.getResponseCode();
+            responseStatus = status;
             if (status != 200) {
                 if (status == 429 || status == 503) retryAfter = retryAfterSeconds(connection.getHeaderField("Retry-After"));
-                throw new IOException("Price provider returned HTTP " + status + ".");
+                throw new ProviderException(status == 429 ? FailureReason.RATE_LIMIT : FailureReason.HTTP_ERROR);
             }
-            if (connection.getContentLengthLong() > MAX_BODY_BYTES) throw new IOException("Provider response exceeds size limit.");
+            if (connection.getContentLengthLong() > MAX_BODY_BYTES) throw new ProviderException(FailureReason.RESPONSE_TOO_LARGE);
             byte[] body;
             try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
                 byte[] buffer = new byte[4096];
@@ -137,7 +173,7 @@ public final class CoinGeckoService implements AutoCloseable {
                     connection.setReadTimeout(remainingMillis(deadline));
                     int count = input.read(buffer);
                     if (count < 0) break;
-                    if (output.size() + count > MAX_BODY_BYTES) throw new IOException("Provider response exceeds size limit.");
+                    if (output.size() + count > MAX_BODY_BYTES) throw new ProviderException(FailureReason.RESPONSE_TOO_LARGE);
                     output.write(buffer, 0, count);
                 }
                 body = output.toByteArray();
@@ -147,6 +183,7 @@ public final class CoinGeckoService implements AutoCloseable {
             synchronized (this) {
                 if (closed) throw new IOException("Price service is closed.");
                 cached = snapshot; cachedDegraded = false; failures = 0; nextAttempt = Instant.MIN;
+                lastFailure = FailureReason.NONE; lastFailureHttpStatus = null; lastFailureAt = null;
                 quote = cachedQuote().orElseThrow();
             }
             try { onFreshSnapshot.accept(snapshot); }
@@ -156,9 +193,16 @@ public final class CoinGeckoService implements AutoCloseable {
         } catch (Exception error) {
             Optional<PriceQuote> fallback;
             synchronized (this) {
-                failures = Math.min(failures + 1, 6);
-                cachedDegraded = true;
-                nextAttempt = clock.instant().plusSeconds(Math.max(retryAfter, Math.min(300, 5L << (failures - 1))));
+                if (!closed) {
+                    if (failures < Integer.MAX_VALUE) failures++;
+                    cachedDegraded = true;
+                    lastFailure = error instanceof ProviderException provider ? provider.reason
+                            : error instanceof SocketTimeoutException ? FailureReason.TIMEOUT
+                            : error instanceof IOException ? FailureReason.NETWORK : FailureReason.INVALID_RESPONSE;
+                    lastFailureHttpStatus = responseStatus;
+                    lastFailureAt = clock.instant();
+                    nextAttempt = lastFailureAt.plusSeconds(Math.max(retryAfter, Math.min(300, 5L << (Math.min(failures, 6) - 1))));
+                }
                 fallback = cachedQuote();
                 if (!closed) logger.warning("BitcoinPrice provider request failed; retry cooldown activated.");
             }
@@ -187,7 +231,7 @@ public final class CoinGeckoService implements AutoCloseable {
 
     private static int remainingMillis(long deadline) throws IOException {
         long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) throw new IOException("Price provider request timed out.");
+        if (remaining <= 0) throw new SocketTimeoutException("Price provider request timed out.");
         return (int) Math.max(1, Math.min(Integer.MAX_VALUE, TimeUnit.NANOSECONDS.toMillis(remaining)));
     }
 
@@ -209,13 +253,12 @@ public final class CoinGeckoService implements AutoCloseable {
                 Object raw = bitcoin.get("last_updated_at");
                 if (!(raw instanceof Number)) throw new IllegalArgumentException("Invalid timestamp.");
                 provider = Instant.ofEpochSecond(new BigDecimal(raw.toString()).longValueExact());
-                if (provider.isAfter(fetchedAt.plusSeconds(60))
-                        || provider.isBefore(fetchedAt.minusSeconds(settings.maxProviderAgeSeconds()))) {
-                    throw new IllegalArgumentException("Provider price timestamp is outside the freshness window.");
-                }
+                if (provider.isAfter(fetchedAt.plusSeconds(60))) throw new IllegalArgumentException("Provider timestamp is in the future.");
+                if (provider.isBefore(fetchedAt.minusSeconds(settings.maxProviderAgeSeconds())))
+                    throw new ProviderException(FailureReason.OUTDATED_PROVIDER_DATA);
             }
             return new PriceSnapshot(prices, changes, provider, fetchedAt);
-        } catch (RuntimeException invalid) { throw new IOException("Invalid or outdated provider data."); }
+        } catch (RuntimeException invalid) { throw new ProviderException(FailureReason.INVALID_RESPONSE); }
     }
 
     private static BigDecimal decimal(JSONObject object, String field, boolean optional) {

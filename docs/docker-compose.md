@@ -1,14 +1,14 @@
 # Installation auf einem bestehenden Docker-Compose-/Coolify-Server
 
-BitcoinPrice 2.2.0 ist für Paper **26.2** mit **Java 25** gebaut, gegen
+BitcoinPrice 2.3.0 ist für Paper **26.2** mit **Java 25** gebaut, gegen
 Paper-API Build 123. Der Minecraft-Client benötigt kein Plugin.
 
 ## 1. JAR besorgen
 
 Auf GitHub unter **Actions → Build → erfolgreicher Lauf → Artifacts** das
-Archiv `BitcoinPrice-2.2.0` herunterladen und entpacken. Alternativ mit
+Archiv `BitcoinPrice-2.3.0` herunterladen und entpacken. Alternativ mit
 JDK 25 und Maven `mvn clean verify` ausführen; die fertige Datei heißt
-`target/BitcoinPrice-2.2.0.jar`. Nicht `original-*.jar` installieren.
+`target/BitcoinPrice-2.3.0.jar`. Nicht `original-*.jar` installieren.
 
 Die fertige JAR enthält die JSON-Bibliothek; zusätzliche Plugins sind nicht nötig.
 
@@ -25,7 +25,7 @@ Download-URL der neuen Version ersetzt werden. Ein Beispiel mit Platzhalter:
 environment:
   TYPE: PAPER
   VERSION: "26.2"
-  PLUGINS: 'https://example.com/BitcoinPrice-2.2.0.jar' # echte veröffentlichte JAR-URL einsetzen
+  PLUGINS: 'https://github.com/MartinGeltl21/BitcoinPrice/releases/download/v2.3.0/BitcoinPrice-2.3.0.jar'
 ```
 
 Danach in Coolify redeployen. Andere Plugin-URLs in der bestehenden Liste
@@ -39,19 +39,17 @@ keinen Release-Download. Die Release-URL erst verwenden, wenn die JAR dort
 tatsächlich veröffentlicht wurde. Bis dahin lässt sich die gebaute JAR manuell
 installieren, wie unten beschrieben.
 
-Die bereits veröffentlichte Release-URL von **2.1.1** bleibt gültig und lädt
-weiterhin diese Version. Für 2.2.0 muss zuerst ein Release mit Tag `v2.2.0` und
-dem Asset `BitcoinPrice-2.2.0.jar` veröffentlicht werden. Erst danach kann eine
-URL nach diesem Muster als `PLUGINS`-Quelle verwendet werden; `<OWNER>` durch
-den tatsächlichen Repository-Eigentümer ersetzen:
+Die bisherigen Release-URLs laden weiterhin genau ihre jeweilige Version. Für 2.3.0
+muss das Release `v2.3.0` mit dem Asset `BitcoinPrice-2.3.0.jar` vorhanden sein.
+Die feste Download-URL lautet:
 
 ```text
-https://github.com/<OWNER>/BitcoinPrice/releases/download/v2.2.0/BitcoinPrice-2.2.0.jar
+https://github.com/MartinGeltl21/BitcoinPrice/releases/download/v2.3.0/BitcoinPrice-2.3.0.jar
 ```
 
-Eine bestehende 2.1.1-Downloadquelle bis zur Veröffentlichung beibehalten oder
-die neue JAR aus dem Build manuell installieren. Die neue Versionsnummer im
-Repository allein stellt keinen Download bereit.
+Bis zur Veröffentlichung die bisherige Downloadquelle beibehalten oder die neue
+JAR aus dem Build manuell installieren. Andere Plugin-URLs, beispielsweise
+LichessCraft, bleiben unverändert.
 
 ## 2. Vorhandenen Container und Datenspeicher identifizieren
 
@@ -74,14 +72,14 @@ Welt und das vorhandene `/data`-Volume beibehalten.
 Lokal die JAR auf den VPS kopieren (SSH-Benutzer und Host anpassen):
 
 ```powershell
-scp .\BitcoinPrice-2.2.0.jar root@vps.example.com:/tmp/BitcoinPrice-2.2.0.jar
+scp .\BitcoinPrice-2.3.0.jar root@vps.example.com:/tmp/BitcoinPrice-2.3.0.jar
 ```
 
 Auf dem VPS:
 
 ```bash
 sudo install -d -m 755 /srv/minecraft/plugins
-sudo install -m 644 /tmp/BitcoinPrice-2.2.0.jar /srv/minecraft/plugins/BitcoinPrice.jar
+sudo install -m 644 /tmp/BitcoinPrice-2.3.0.jar /srv/minecraft/plugins/BitcoinPrice.jar
 ```
 
 In **der bestehenden** Compose-Konfiguration beim Minecraft-Service ergänzen:
@@ -137,7 +135,7 @@ docker exec "$MC" ls -l /data/plugins
 docker exec "$MC" mkdir -p /data/plugin-backups
 # Vorhandene BitcoinPrice-JARs gezielt nach /data/plugin-backups verschieben.
 docker stop --time 60 "$MC"
-docker cp /tmp/BitcoinPrice-2.2.0.jar "$MC":/data/plugins/BitcoinPrice.jar
+docker cp /tmp/BitcoinPrice-2.3.0.jar "$MC":/data/plugins/BitcoinPrice.jar
 docker start "$MC"
 docker logs --since 2m "$MC"
 ```
@@ -150,7 +148,7 @@ damit beim nächsten Start keine alte JAR zurückkopiert wird.
 
 ## 4. Prüfen und konfigurieren
 
-- Logs: `BitcoinPrice 2.2.0 wurde erfolgreich aktiviert!`, keine Ladefehler.
+- Logs: `BitcoinPrice 2.3.0 wurde erfolgreich aktiviert!`, keine Ladefehler.
 - In der Serverkonsole: `plugins`, `version BitcoinPrice`, `btc`, `btceur`, `btcusd`.
 - Im Spiel: `/btc`, `/btc help`, `/btc currency BOTH` (persönlich), `/btc global currency BOTH` (Admin), `/btc off`, `/btc on`.
 - Als OP: `/btc off all` und `/btc on all` prüfen.

@@ -1,5 +1,7 @@
 package org.bitcoinprice.preferences;
 
+import org.bitcoinprice.presentation.MessageException;
+
 import org.bitcoinprice.model.PriceSnapshot;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -76,31 +78,43 @@ public final class PlayerPreferencesService implements AutoCloseable {
     public synchronized void setNotifications(UUID player, boolean enabled) {
         Preferences old = get(player);
         set(player, new Preferences(enabled, old.currency(), old.display(), old.locale(),
-                old.actionbarMode(), old.actionbarIntervalMinutes()));
+                old.actionbarMode(), old.actionbarIntervalMinutes(), old.language(), old.actionbarContent()));
     }
 
     public synchronized void setCurrency(UUID player, String currency) {
         Preferences old = get(player);
         set(player, new Preferences(old.notifications(), currency, old.display(), old.locale(),
-                old.actionbarMode(), old.actionbarIntervalMinutes()));
+                old.actionbarMode(), old.actionbarIntervalMinutes(), old.language(), old.actionbarContent()));
     }
 
     public synchronized void setDisplay(UUID player, DisplayMode display) {
         Preferences old = get(player);
         set(player, new Preferences(old.notifications(), old.currency(), display, old.locale(),
-                old.actionbarMode(), old.actionbarIntervalMinutes()));
+                old.actionbarMode(), old.actionbarIntervalMinutes(), old.language(), old.actionbarContent()));
     }
 
     public synchronized void setActionbar(UUID player, ActionbarMode mode, int intervalMinutes) {
         Preferences old = get(player);
         set(player, new Preferences(old.notifications(), old.currency(), DisplayMode.ACTIONBAR, old.locale(),
-                mode, intervalMinutes));
+                mode, intervalMinutes, old.language(), old.actionbarContent()));
     }
 
     public synchronized void setLocale(UUID player, String locale) {
         Preferences old = get(player);
         set(player, new Preferences(old.notifications(), old.currency(), old.display(), locale,
-                old.actionbarMode(), old.actionbarIntervalMinutes()));
+                old.actionbarMode(), old.actionbarIntervalMinutes(), old.language(), old.actionbarContent()));
+    }
+
+    public synchronized void setActionbarContent(UUID player, ActionbarContent content) {
+        Preferences old = get(player);
+        set(player, new Preferences(old.notifications(), old.currency(), DisplayMode.ACTIONBAR, old.locale(),
+                old.actionbarMode(), old.actionbarIntervalMinutes(), old.language(), content));
+    }
+
+    public synchronized void setLanguage(UUID player, String language) {
+        Preferences old = get(player);
+        set(player, new Preferences(old.notifications(), old.currency(), old.display(), old.locale(),
+                old.actionbarMode(), old.actionbarIntervalMinutes(), language, old.actionbarContent()));
     }
 
     private void set(UUID player, Preferences preferences) {
@@ -120,7 +134,7 @@ public final class PlayerPreferencesService implements AutoCloseable {
     public synchronized PriceAlert addAlert(UUID player, AlertDirection direction, BigDecimal threshold, String currency) {
         PriceAlert alert = new PriceAlert(UUID.randomUUID(), direction, threshold, currency);
         PlayerData data = mutable(player);
-        if (data.alerts.size() >= MAX_ALERTS) throw new IllegalArgumentException("Maximum of 10 alerts per player");
+        if (data.alerts.size() >= MAX_ALERTS) throw new MessageException("error.alert.limit");
         data.alerts.put(alert.id(), new AlertState(alert));
         persist();
         return alert;
@@ -197,9 +211,9 @@ public final class PlayerPreferencesService implements AutoCloseable {
         requirePositive(eurBtcPrice, "price");
         PlayerData data = tradingPlayer(player);
         PortfolioBalance old = data.portfolio;
-        if (old.cashEur().compareTo(eurAmount) < 0) throw new IllegalArgumentException("Insufficient virtual EUR balance");
+        if (old.cashEur().compareTo(eurAmount) < 0) throw new MessageException("error.portfolio.eur");
         BigDecimal coins = eurAmount.divide(eurBtcPrice, 8, RoundingMode.DOWN);
-        if (coins.signum() == 0) throw new IllegalArgumentException("Trade must purchase at least one satoshi");
+        if (coins.signum() == 0) throw new MessageException("error.portfolio.satoshi");
         data.portfolio = new PortfolioBalance(old.cashEur().subtract(eurAmount).setScale(2), old.bitcoin().add(coins).setScale(8));
         persist();
         return data.portfolio;
@@ -210,9 +224,9 @@ public final class PlayerPreferencesService implements AutoCloseable {
         requirePositive(eurBtcPrice, "price");
         PlayerData data = tradingPlayer(player);
         PortfolioBalance old = data.portfolio;
-        if (old.bitcoin().compareTo(btcAmount) < 0) throw new IllegalArgumentException("Insufficient virtual BTC balance");
+        if (old.bitcoin().compareTo(btcAmount) < 0) throw new MessageException("error.portfolio.btc");
         BigDecimal proceeds = btcAmount.multiply(eurBtcPrice).setScale(2, RoundingMode.DOWN);
-        if (proceeds.signum() == 0) throw new IllegalArgumentException("Trade must yield at least one cent");
+        if (proceeds.signum() == 0) throw new MessageException("error.portfolio.cent");
         data.portfolio = new PortfolioBalance(old.cashEur().add(proceeds).setScale(2), old.bitcoin().subtract(btcAmount).setScale(8));
         persist();
         return data.portfolio;
@@ -222,20 +236,20 @@ public final class PlayerPreferencesService implements AutoCloseable {
         requireOpen();
         Objects.requireNonNull(player);
         PlayerData data = players.get(player);
-        if (data == null || data.portfolio == null) throw new IllegalArgumentException("Start your virtual portfolio first");
+        if (data == null || data.portfolio == null) throw new MessageException("error.portfolio.missing");
         return data;
     }
 
     static void requirePositive(BigDecimal amount, String name) {
         if (amount == null || amount.signum() <= 0 || amount.compareTo(MAX_VALUE) > 0
                 || amount.precision() > 40 || amount.scale() > 18 || amount.scale() < -18) {
-            throw new IllegalArgumentException(name + " must be a positive, bounded decimal number");
+            throw new MessageException("error.amount.positive");
         }
     }
 
     private static void requireAmount(BigDecimal amount, int decimals, String name) {
         requirePositive(amount, name);
-        if (amount.stripTrailingZeros().scale() > decimals) throw new IllegalArgumentException(name + " supports at most " + decimals + " decimals");
+        if (amount.stripTrailingZeros().scale() > decimals) throw new MessageException("error.amount.precision", decimals);
     }
 
     private PlayerData mutable(UUID player) {
@@ -263,7 +277,8 @@ public final class PlayerPreferencesService implements AutoCloseable {
                 data.preferences = new Preferences(prefs.getBoolean("notifications"), prefs.getString("currency"),
                         DisplayMode.valueOf(prefs.getString("display")), prefs.getString("locale"),
                         prefs.has("actionbarMode") ? ActionbarMode.valueOf(prefs.getString("actionbarMode")) : ActionbarMode.CONTINUOUS,
-                        actionbarIntervalMinutes(prefs));
+                        actionbarIntervalMinutes(prefs), prefs.has("language") ? prefs.getString("language") : "DEFAULT",
+                        prefs.has("actionbarContent") ? ActionbarContent.parse(prefs.getString("actionbarContent")) : ActionbarContent.FULL);
                 JSONArray alerts = stored.getJSONArray("alerts");
                 if (alerts.length() > MAX_ALERTS) throw new IllegalArgumentException("Too many stored alerts");
                 for (int i = 0; i < alerts.length(); i++) {
@@ -339,8 +354,8 @@ public final class PlayerPreferencesService implements AutoCloseable {
             Preferences prefs = data.preferences;
             JSONObject stored = new JSONObject().put("preferences", new JSONObject()
                     .put("notifications", prefs.notifications()).put("currency", prefs.currency())
-                    .put("display", prefs.display().name()).put("locale", prefs.locale())
-                    .put("actionbarMode", prefs.actionbarMode().name())
+                    .put("display", prefs.display().name()).put("locale", prefs.locale()).put("language", prefs.language())
+                    .put("actionbarMode", prefs.actionbarMode().name()).put("actionbarContent", prefs.actionbarContent().name())
                     .put("actionbarIntervalMinutes", prefs.actionbarIntervalMinutes()));
             JSONArray alerts = new JSONArray();
             data.alerts.values().forEach(state -> alerts.put(new JSONObject()
