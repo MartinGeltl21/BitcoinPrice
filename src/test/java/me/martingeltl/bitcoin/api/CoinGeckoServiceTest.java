@@ -111,15 +111,17 @@ class CoinGeckoServiceTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             entered.countDown();
-            try { release.await(2, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            try { release.await(10, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             exchange.close();
         });
         server.start();
-        CoinGeckoService service = new CoinGeckoService(settings(url(server), 100), sample -> {}, LOG);
+        // Leave enough time for a loaded CI runner to accept the socket, while the handler
+        // remains blocked much longer than the request deadline.
+        CoinGeckoService service = new CoinGeckoService(settings(url(server), 2000), sample -> {}, LOG);
         try {
             var pending = service.fetchBitcoinPrice();
-            assertTrue(entered.await(1, TimeUnit.SECONDS));
-            assertThrows(ExecutionException.class, () -> pending.get(2, TimeUnit.SECONDS));
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            assertThrows(ExecutionException.class, () -> pending.get(5, TimeUnit.SECONDS));
             service.close();
             assertThrows(ExecutionException.class, () -> service.fetchBitcoinPrice().get(1, TimeUnit.SECONDS));
         } finally { service.close(); release.countDown(); server.stop(0); }
@@ -128,13 +130,13 @@ class CoinGeckoServiceTest {
         HttpServer secondServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         secondServer.createContext("/", exchange -> {
             secondEntered.countDown();
-            try { secondRelease.await(2, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            try { secondRelease.await(10, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             exchange.close();
         });
         secondServer.start();
-        CoinGeckoService second = new CoinGeckoService(settings(url(secondServer), 2000), sample -> {}, LOG);
+        CoinGeckoService second = new CoinGeckoService(settings(url(secondServer), 10000), sample -> {}, LOG);
         try {
-            var pending = second.fetchBitcoinPrice(); assertTrue(secondEntered.await(1, TimeUnit.SECONDS));
+            var pending = second.fetchBitcoinPrice(); assertTrue(secondEntered.await(5, TimeUnit.SECONDS));
             second.close(); assertThrows(ExecutionException.class, () -> pending.get(1, TimeUnit.SECONDS));
         } finally { second.close(); secondRelease.countDown(); secondServer.stop(0); }
     }
