@@ -26,12 +26,14 @@ Die Tafel mit etwas Landschaft aufnehmen. **F1** kann für diese Aufnahme die ü
 
 ```text
 /btc currency EUR
-/btc display actionbar
+/btc display actionbar continuous
 /btc on
 /btc
 ```
 
-Den Chat schließen, kurz warten und aufnehmen, sobald die Kurszeile **oberhalb der Schnellzugriffsleiste** erscheint. Die Actionbar wird standardmäßig alle fünf Sekunden angezeigt. Hier **F1 nicht verwenden**, da die Actionbar zur Benutzeroberfläche gehört. Ein ruhiger Hintergrund erleichtert das Lesen.
+Den Chat schließen, kurz warten und aufnehmen, sobald die Kurszeile **oberhalb der Schnellzugriffsleiste** erscheint. Im Modus `continuous` wird sie jede Sekunde aus dem Cache erneuert und bleibt sichtbar. Hier **F1 nicht verwenden**, da die Actionbar zur Benutzeroberfläche gehört. Ein ruhiger Hintergrund erleichtert das Lesen.
+
+Für eine zusätzliche Aufnahme des Intervallmodus `/btc display actionbar interval 1` wählen und die nächste automatische Anzeige abwarten. Sie erscheint einmal pro Minute kurz und blendet anschließend aus; manuelle Kursabfragen lösen keine zusätzliche Intervallanzeige aus.
 
 ## 3. Chat-Kurs — `chat.png`
 
@@ -53,6 +55,6 @@ Alternativ `/btchelp 1`; für eine andere Seite `/btc help 2`. Eine einzelne Sei
 
 ## Danach
 
-Die eigenen vorherigen Einstellungen mit `/btc currency <vorheriger CODE>`, `/btc display <vorheriger Modus>` und `/btc on` beziehungsweise `/btc off` wiederherstellen. Eine nur zum Fotografieren erstellte Tafel bei Bedarf entfernen.
+Die eigenen vorherigen Einstellungen mit `/btc currency <vorheriger CODE>`, `/btc display <vorheriger Modus>` und `/btc on` beziehungsweise `/btc off` wiederherstellen. Bei einer vorherigen Actionbar-Auswahl auch `continuous` beziehungsweise `interval` und das persönliche Minutenintervall oder `DEFAULT` wiederherstellen. Eine nur zum Fotografieren erstellte Tafel bei Bedarf entfernen.
 
 Die Bilder können im Chat hochgeladen werden. Vorgesehene Repository-Dateien sind `docs/assets/board.png`, `docs/assets/actionbar.png`, `docs/assets/chat.png` und optional `docs/assets/help.png`. Diese Dateien werden erst nach Erhalt und Prüfung echter Bilder in die README eingebunden. Bis dahin gibt es keine leeren Bildverweise.

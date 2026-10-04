@@ -92,7 +92,8 @@ public final class MessageFormatter {
                 .replace("{eur}", eur).replace("{usd}", usd).replace("{price}", price)
                 .replace("{currency}", currency.equals("BOTH") ? "" : currency).replace("{change}", change)
                 .replace("{age}", age(snapshot.fetchedAt())).replace("{provider_age}", age(snapshot.providerUpdatedAt()))
-                .replace("{status}", snapshot.providerUpdatedAt() == null ? "&eKursstand unbekannt" : quote.stale() ? "&cveraltet" : "&aaktuell")
+                .replace("{status}", snapshot.providerUpdatedAt() == null ? "&eKursstand unbekannt"
+                        : quote.stale() || !isFresh(snapshot, plugin.getConfigManager().getApiSettings(), Instant.now()) ? "&cveraltet" : "&aaktuell")
                 .replace("{threshold}", alert == null ? "" : money(alert.threshold(), locale, alert.currency()))
                 .replace("{direction}", alert == null ? "" : alert.direction().name().equals("ABOVE") ? "oberhalb" : "unterhalb")
                 .replace("{id}", alert == null ? "" : alert.id().toString().substring(0, 8));

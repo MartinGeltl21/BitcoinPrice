@@ -52,6 +52,109 @@ class PlayerPreferencesServiceTest {
         assertTrue(Files.readString(temporary.resolve("players.json")).contains(player.toString()));
     }
 
+    @Test void personalActionbarModesAreIsolatedAndSurviveRestart() {
+        UUID other = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        Preferences selected;
+        try (PlayerPreferencesService service = service()) {
+            service.setNotifications(player, false);
+            service.setCurrency(player, "GBP");
+            service.setLocale(player, "en-GB");
+            service.setActionbar(player, ActionbarMode.INTERVAL, 5);
+            selected = new Preferences(false, "GBP", DisplayMode.ACTIONBAR, "en-GB", ActionbarMode.INTERVAL, 5);
+            assertEquals(selected, service.get(player));
+            assertEquals(Preferences.DEFAULTS, service.get(other));
+            service.setActionbar(other, ActionbarMode.CONTINUOUS, 0);
+            assertEquals(selected, service.get(player));
+            assertEquals(Preferences.DEFAULTS, service.get(stranger));
+        }
+        try (PlayerPreferencesService service = service()) {
+            assertEquals(selected, service.get(player));
+            assertEquals(new Preferences(true, "DEFAULT", DisplayMode.ACTIONBAR, "DEFAULT"), service.get(other));
+            assertEquals(Preferences.DEFAULTS, service.get(stranger));
+        }
+    }
+
+    @Test void everyOtherPreferenceSetterPreservesPersonalActionbarSettings() {
+        try (PlayerPreferencesService service = service()) {
+            service.setActionbar(player, ActionbarMode.INTERVAL, 30);
+            service.setNotifications(player, false);
+            assertEquals(new Preferences(false, "DEFAULT", DisplayMode.ACTIONBAR, "DEFAULT", ActionbarMode.INTERVAL, 30), service.get(player));
+            service.setCurrency(player, "JPY");
+            assertEquals(new Preferences(false, "JPY", DisplayMode.ACTIONBAR, "DEFAULT", ActionbarMode.INTERVAL, 30), service.get(player));
+            service.setLocale(player, "ja-JP");
+            assertEquals(new Preferences(false, "JPY", DisplayMode.ACTIONBAR, "ja-JP", ActionbarMode.INTERVAL, 30), service.get(player));
+            service.setDisplay(player, DisplayMode.CHAT);
+            assertEquals(new Preferences(false, "JPY", DisplayMode.CHAT, "ja-JP", ActionbarMode.INTERVAL, 30), service.get(player));
+            service.setDisplay(player, DisplayMode.OFF);
+            assertEquals(ActionbarMode.INTERVAL, service.get(player).actionbarMode());
+            assertEquals(30, service.get(player).actionbarIntervalMinutes());
+            service.setDisplay(player, DisplayMode.ACTIONBAR);
+            assertEquals(new Preferences(false, "JPY", DisplayMode.ACTIONBAR, "ja-JP", ActionbarMode.INTERVAL, 30), service.get(player));
+        }
+    }
+
+    @Test void invalidActionbarSelectionsDoNotMutateSettingsOrSelectDisplay() {
+        try (PlayerPreferencesService service = service()) {
+            service.setCurrency(player, "CHF");
+            Preferences initial = service.get(player);
+            for (int minutes : List.of(-1, 2, 15, 59, 61, Integer.MAX_VALUE)) {
+                assertThrows(IllegalArgumentException.class, () -> service.setActionbar(player, ActionbarMode.INTERVAL, minutes));
+                assertEquals(initial, service.get(player));
+            }
+            assertThrows(NullPointerException.class, () -> service.setActionbar(player, null, 1));
+            assertEquals(initial, service.get(player));
+            for (int minutes : List.of(0, 1, 5, 10, 30, 60)) {
+                service.setActionbar(player, ActionbarMode.INTERVAL, minutes);
+                assertEquals(minutes, service.get(player).actionbarIntervalMinutes());
+            }
+        }
+    }
+
+    @Test void legacyVersionOnePreferencesMigrateWithoutLosingExistingSettings() throws Exception {
+        Path file = temporary.resolve("players.json");
+        org.json.JSONObject legacyPreferences = new org.json.JSONObject()
+                .put("notifications", false).put("currency", "USD").put("display", "ACTIONBAR").put("locale", "en-US");
+        org.json.JSONObject legacyPlayer = new org.json.JSONObject().put("preferences", legacyPreferences)
+                .put("alerts", new org.json.JSONArray()).put("portfolio", org.json.JSONObject.NULL);
+        Files.writeString(file, new org.json.JSONObject().put("version", 1)
+                .put("players", new org.json.JSONObject().put(player.toString(), legacyPlayer)).toString());
+        try (PlayerPreferencesService service = service()) {
+            assertEquals(new Preferences(false, "USD", DisplayMode.ACTIONBAR, "en-US", ActionbarMode.CONTINUOUS, 0), service.get(player));
+            service.setActionbar(player, ActionbarMode.INTERVAL, 1);
+        }
+        try (PlayerPreferencesService service = service()) {
+            assertEquals(new Preferences(false, "USD", DisplayMode.ACTIONBAR, "en-US", ActionbarMode.INTERVAL, 1), service.get(player));
+        }
+        assertEquals(1, new org.json.JSONObject(Files.readString(file)).getInt("version"));
+        try (var files = Files.list(temporary)) {
+            assertEquals(0, files.filter(path -> path.getFileName().toString().contains(".invalid-")).count());
+        }
+    }
+
+    @Test void persistedActionbarIntervalRejectsCoercionAndPreservesMalformedSource() throws Exception {
+        for (Object invalid : List.of(new BigDecimal("1.5"), "1", new BigDecimal("4294967297"), true, org.json.JSONObject.NULL)) {
+            Path file = temporary.resolve(UUID.randomUUID() + ".json");
+            org.json.JSONObject preferences = new org.json.JSONObject().put("notifications", false)
+                    .put("currency", "GBP").put("display", "ACTIONBAR").put("locale", "en-GB")
+                    .put("actionbarMode", "INTERVAL").put("actionbarIntervalMinutes", invalid);
+            org.json.JSONObject storedPlayer = new org.json.JSONObject().put("preferences", preferences)
+                    .put("alerts", new org.json.JSONArray()).put("portfolio", org.json.JSONObject.NULL);
+            String source = new org.json.JSONObject().put("version", 1)
+                    .put("players", new org.json.JSONObject().put(player.toString(), storedPlayer)).toString();
+            Files.writeString(file, source);
+            try (PlayerPreferencesService service = new PlayerPreferencesService(file, Duration.ofSeconds(300), Logger.getAnonymousLogger(), clock)) {
+                assertEquals(Preferences.DEFAULTS, service.get(player), "Malformed interval must not silently select an integer cadence");
+            }
+            assertEquals(source, Files.readString(file));
+            try (var files = Files.list(temporary)) {
+                List<Path> backups = files.filter(path -> path.getFileName().toString().startsWith(file.getFileName() + ".invalid-")).toList();
+                assertEquals(1, backups.size());
+                assertEquals(source, Files.readString(backups.getFirst()));
+            }
+        }
+    }
+
     @Test void firstQuoteAboveThresholdDoesNotTriggerThenRealCrossingDoes() {
         try (PlayerPreferencesService service = service()) {
             PriceAlert alert = service.addAlert(player, AlertDirection.ABOVE, new BigDecimal("100"), "EUR");

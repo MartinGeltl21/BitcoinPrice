@@ -4,6 +4,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.bitcoinprice.BitcoinPrice;
 import org.bitcoinprice.model.PriceSnapshot;
 import org.bitcoinprice.preferences.DisplayMode;
+import org.bitcoinprice.preferences.ActionbarMode;
+import org.bitcoinprice.model.PriceQuote;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
@@ -32,6 +34,8 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
     private final AtomicInteger requests = new AtomicInteger();
     private final List<String> received = new ArrayList<>();
     private final List<Component> receivedComponents = new ArrayList<>();
+    private final List<Component> actionbarReceived = new ArrayList<>();
+    private final AtomicInteger providerStatus = new AtomicInteger(200);
     private HttpServer http;
     private BitcoinPrice plugin;
     private Player player;
@@ -49,7 +53,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
                         + "\"jpy\":14000000,\"cny\":600000,\"inr\":7400000,\"eur_24h_change\":2.5,\"usd_24h_change\":2.1,"
                         + "\"gbp_24h_change\":3.5,\"jpy_24h_change\":1.0,\"last_updated_at\":" + Instant.now().getEpochSecond() + "}}";
                 byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.sendResponseHeaders(providerStatus.get(), bytes.length);
                 try (var output = exchange.getResponseBody()) { output.write(bytes); }
             });
             http.start();
@@ -74,6 +78,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
                 case "sendMessage", "sendActionBar" -> {
                     if (args != null) for (Object value : args) {
                         if (value instanceof Component component) {
+                            if (method.getName().equals("sendActionBar")) actionbarReceived.add(component);
                             received.add(PlainTextComponentSerializer.plainText().serialize(component));
                             receivedComponents.add(component);
                         }
@@ -107,6 +112,12 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
                             && plugin.getPreferences().get(OFFLINE_TARGET).currency().equals("GBP"),
                     "admin-selected offline UUID notification/currency settings restored");
             check(plugin.getPreferences().get(OWNER).display() == DisplayMode.ACTIONBAR, "display restored");
+            check(plugin.getPreferences().get(OWNER).actionbarMode() == ActionbarMode.INTERVAL
+                            && plugin.getPreferences().get(OWNER).actionbarIntervalMinutes() == 1,
+                    "owner actionbar mode and individual minute interval restored");
+            check(plugin.getPreferences().get(OFFLINE_TARGET).actionbarMode() == ActionbarMode.INTERVAL
+                            && plugin.getPreferences().get(OFFLINE_TARGET).actionbarIntervalMinutes() == 5,
+                    "OP-selected offline target actionbar settings restored independently");
             check(plugin.getPreferences().getPortfolio(OWNER).orElseThrow().bitcoin().compareTo(new BigDecimal("0.001")) == 0,
                     "portfolio restored without resetting balance");
             check(!plugin.getConfigManager().isBroadcastsEnabled(), "global notifications off restored");
@@ -135,6 +146,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         command(player, "board", "create", "forbidden");
         command(player, "player", OFFLINE_TARGET.toString(), "off");
         command(player, "player", OFFLINE_TARGET.toString(), "currency", "GBP");
+        command(player, "player", OFFLINE_TARGET.toString(), "display", "actionbar", "interval", "5");
         check(plugin.getConfigManager().getPriceInterval() == interval && plugin.getConfigManager().getPriceCurrency().equals("EUR"),
                 "non-admin cannot change global settings");
         check(requests.get() == 0 && plugin.getConfigManager().isBroadcastsEnabled() && plugin.getBoards().names().isEmpty(),
@@ -173,6 +185,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         command(player, "history", "24h");
         command(player, "settings");
         check(requests.get() == 1, "price aliases, sats and settings share cache");
+        verifyActionbar();
         check(received.stream().anyMatch(message -> message.contains("12,500") || message.contains("12.500") || message.contains("12500")),
                 "10 EUR converts to 12500 satoshis");
         check(plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc", new String[]{""}).contains("sats"),
@@ -213,6 +226,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         command(player, "currency", "USD"); // Existing owner restart expectations stay unchanged.
         command(player, "player", OFFLINE_TARGET.toString(), "off");
         command(player, "player", OFFLINE_TARGET.toString(), "currency", "GBP");
+        command(player, "player", OFFLINE_TARGET.toString(), "display", "actionbar", "interval", "5");
         command(player, "player", OFFLINE_TARGET.toString(), "settings");
         check(!prefs.get(OFFLINE_TARGET).notifications() && prefs.get(OFFLINE_TARGET).currency().equals("GBP"),
                 "OP persists individual offline UUID preferences without profile lookup");
@@ -222,6 +236,21 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         check(plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc", new String[]{"player", ""}).contains("BitcoinSmoke")
                         && plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc", new String[]{"player", OWNER.toString(), "currency", ""}).contains("GBP"),
                 "OP completion includes exact player names and extended currency choices");
+        check(prefs.get(OFFLINE_TARGET).actionbarMode() == ActionbarMode.INTERVAL
+                        && prefs.get(OFFLINE_TARGET).actionbarIntervalMinutes() == 5
+                        && prefs.get(OWNER).actionbarIntervalMinutes() == 1,
+                "OP can set offline target actionbar cadence without changing own cadence");
+        check(plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc",
+                        new String[]{"player", OFFLINE_TARGET.toString(), "display", "actionbar", ""}).contains("interval")
+                        && plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc",
+                        new String[]{"player", OFFLINE_TARGET.toString(), "display", "actionbar", "interval", ""}).contains("DEFAULT"),
+                "OP completion covers both target actionbar mode and interval");
+        var targetBefore = prefs.get(OFFLINE_TARGET);
+        command(player, "player", OFFLINE_TARGET.toString(), "display", "actionbar", "interval", "0");
+        check(prefs.get(OFFLINE_TARGET).equals(targetBefore), "invalid target interval never partially changes display");
+        command(player, "interval", "1");
+        check(prefs.get(OFFLINE_TARGET).actionbarIntervalMinutes() == 5,
+                "global interval changes preserve explicitly selected target interval");
         op = false;
         admin = true;
         command(player, "board", "create", "smoke");
@@ -240,9 +269,91 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         int count = requests.get();
         plugin.getScheduler().broadcastBitcoinPrice();
         check(requests.get() == count, "disabled broadcasts do not fetch");
-        Files.createDirectories(getDataFolder().toPath());
-        Files.writeString(getDataFolder().toPath().resolve("restart.marker"), "restart ready");
-        finish();
+        providerStatus.set(503);
+        int refreshStart = received.size();
+        command(player, "refresh");
+        waitForRefreshFailure(refreshStart, 40);
+    }
+
+    private void waitForRefreshFailure(int start, int attempts) throws Exception {
+        List<String> output = received.subList(start, received.size());
+        if (output.stream().anyMatch(text -> text.contains("Keine Aktualisierung gesendet"))) {
+            check(output.stream().noneMatch(text -> text.contains("Kurs aktualisiert"))
+                            && plugin.getApiService().status().quote().orElseThrow().stale(),
+                    "failed refresh with stale fallback is not announced as successful");
+            Files.createDirectories(getDataFolder().toPath());
+            Files.writeString(getDataFolder().toPath().resolve("restart.marker"), "restart ready");
+            finish();
+        } else {
+            if (attempts == 0) throw new AssertionError("Refresh failure confirmation missing");
+            Bukkit.getScheduler().runTaskLater(this, () -> guarded(() -> waitForRefreshFailure(start, attempts - 1)), 1);
+        }
+    }
+
+    private int visibleActionbars() {
+        return (int) actionbarReceived.stream().filter(component -> !PlainTextComponentSerializer.plainText().serialize(component).isEmpty()).count();
+    }
+    private void showActionbarAt(long second, PriceQuote quote) throws Exception {
+        var method = plugin.getScheduler().getClass().getDeclaredMethod("refreshActionbar", Player.class, PriceQuote.class, long.class);
+        method.setAccessible(true);
+        method.invoke(plugin.getScheduler(), player, quote, java.util.concurrent.TimeUnit.SECONDS.toNanos(second));
+    }
+    private void verifyActionbar() throws Exception {
+        var prefs = plugin.getPreferences();
+        PriceQuote quote = plugin.getApiService().cachedQuote().orElseThrow();
+        int count = requests.get();
+        command(player, "display", "off");
+        command(player, "on");
+        check(received.getLast().contains("Anzeige bleibt aus"), "notification-on explains blocking display-off setting");
+        command(player, "off");
+        command(player, "display", "actionbar", "interval", "1");
+        check(received.getLast().contains("/btc on") && prefs.get(OWNER).actionbarMode() == ActionbarMode.INTERVAL,
+                "display confirmation explains disabled notifications and stores interval atomically");
+        int bars = visibleActionbars();
+        showActionbarAt(0, quote);
+        check(visibleActionbars() == bars, "disabled player never receives scheduled actionbar");
+        command(player, "on");
+        showActionbarAt(0, quote);
+        showActionbarAt(1, quote); showActionbarAt(5, quote); showActionbarAt(30, quote); showActionbarAt(59, quote);
+        check(visibleActionbars() == bars + 1, "interval actionbar appears once and remains quiet for a full minute");
+        var poll = plugin.getScheduler().getClass().getDeclaredMethod("poll", boolean.class);
+        poll.setAccessible(true); poll.invoke(plugin.getScheduler(), false);
+        check(visibleActionbars() == bars + 1, "cached provider poll cannot inject an early actionbar");
+        showActionbarAt(60, quote);
+        check(visibleActionbars() == bars + 2, "interval actionbar reappears exactly at next deadline");
+        command(player, "display", "actionbar", "continuous");
+        bars = visibleActionbars();
+        showActionbarAt(61, quote); showActionbarAt(62, quote); showActionbarAt(63, quote);
+        check(visibleActionbars() == bars + 3, "continuous actionbar sends every UI second without waiting for chat interval");
+        command(player, "display", "actionbar", "interval", "5");
+        bars = visibleActionbars();
+        showActionbarAt(100, quote); showActionbarAt(399, quote); showActionbarAt(400, quote);
+        check(visibleActionbars() == bars + 2, "five-minute personal cadence is independent of global ten-minute setting");
+        var before = prefs.get(OWNER);
+        for (String[] invalid : new String[][]{{"display", "actionbar", "interval", "0"}, {"display", "actionbar", "interval", "2"},
+                {"display", "actionbar", "continuous", "1"}, {"display", "chat", "interval"}, {"display", "actionbar", "bad"}}) command(player, invalid);
+        check(prefs.get(OWNER).equals(before), "invalid mode/interval/extra arguments never partially change own settings");
+        command(player, "display", "actionbar", "interval", "DEFAULT");
+        check(prefs.get(OWNER).actionbarIntervalMinutes() == 0, "DEFAULT actionbar interval inherits global setting");
+        command(player, "currency", "DEFAULT"); command(player, "locale", "DEFAULT"); command(player, "settings");
+        check(received.stream().anyMatch(text -> text.contains("DEFAULT → EUR") && text.contains("DEFAULT → de-DE"))
+                        && received.getLast().contains("DEFAULT → 10 Minuten") && received.getLast().contains("aktiv"),
+                "settings show inherited currency/locale and effective actionbar timing");
+        command(player, "status");
+        check(received.stream().anyMatch(text -> text.contains("Kurscache:")) && requests.get() == count,
+                "status reports cache and effective settings without HTTP");
+        check(plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc",
+                        new String[]{"display", "actionbar", ""}).contains("continuous")
+                        && plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc",
+                        new String[]{"display", "actionbar", "interval", ""}).contains("DEFAULT"),
+                "normal completion covers personal actionbar mode and minutes");
+        var oldSnapshot = new PriceSnapshot(quote.snapshot().prices(), quote.snapshot().changes24h(),
+                Instant.now().minusSeconds(1000), Instant.now().minusSeconds(1000));
+        String oldText = PlainTextComponentSerializer.plainText().serialize(plugin.getMessages().quote("price", new PriceQuote(oldSnapshot, false), "EUR", java.util.Locale.GERMANY));
+        check(oldText.contains("veraltet") && !oldText.contains("aktuell"), "formatting rechecks freshness even when callback quote was marked fresh");
+        command(player, "currency", "USD"); command(player, "locale", "en-US");
+        command(player, "display", "actionbar", "interval", "1"); command(player, "off");
+        check(requests.get() == count, "actionbar refreshes and all preference commands use cache without extra HTTP");
     }
 
     private void verifyRestoredBoard() {

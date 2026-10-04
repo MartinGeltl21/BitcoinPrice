@@ -1,14 +1,14 @@
 # Installation auf einem bestehenden Docker-Compose-/Coolify-Server
 
-BitcoinPrice 2.1.1 ist für Paper **26.2** mit **Java 25** gebaut, gegen
+BitcoinPrice 2.2.0 ist für Paper **26.2** mit **Java 25** gebaut, gegen
 Paper-API Build 123. Der Minecraft-Client benötigt kein Plugin.
 
 ## 1. JAR besorgen
 
 Auf GitHub unter **Actions → Build → erfolgreicher Lauf → Artifacts** das
-Archiv `BitcoinPrice-2.1.1` herunterladen und entpacken. Alternativ mit
+Archiv `BitcoinPrice-2.2.0` herunterladen und entpacken. Alternativ mit
 JDK 25 und Maven `mvn clean verify` ausführen; die fertige Datei heißt
-`target/BitcoinPrice-2.1.1.jar`. Nicht `original-*.jar` installieren.
+`target/BitcoinPrice-2.2.0.jar`. Nicht `original-*.jar` installieren.
 
 Die fertige JAR enthält die JSON-Bibliothek; zusätzliche Plugins sind nicht nötig.
 
@@ -25,7 +25,7 @@ Download-URL der neuen Version ersetzt werden. Ein Beispiel mit Platzhalter:
 environment:
   TYPE: PAPER
   VERSION: "26.2"
-  PLUGINS: 'https://example.com/BitcoinPrice-2.1.1.jar' # echte veröffentlichte JAR-URL einsetzen
+  PLUGINS: 'https://example.com/BitcoinPrice-2.2.0.jar' # echte veröffentlichte JAR-URL einsetzen
 ```
 
 Danach in Coolify redeployen. Andere Plugin-URLs in der bestehenden Liste
@@ -38,6 +38,20 @@ JAR-URL für `PLUGINS`. Ein neuer Branch oder Pull Request veröffentlicht noch
 keinen Release-Download. Die Release-URL erst verwenden, wenn die JAR dort
 tatsächlich veröffentlicht wurde. Bis dahin lässt sich die gebaute JAR manuell
 installieren, wie unten beschrieben.
+
+Die bereits veröffentlichte Release-URL von **2.1.1** bleibt gültig und lädt
+weiterhin diese Version. Für 2.2.0 muss zuerst ein Release mit Tag `v2.2.0` und
+dem Asset `BitcoinPrice-2.2.0.jar` veröffentlicht werden. Erst danach kann eine
+URL nach diesem Muster als `PLUGINS`-Quelle verwendet werden; `<OWNER>` durch
+den tatsächlichen Repository-Eigentümer ersetzen:
+
+```text
+https://github.com/<OWNER>/BitcoinPrice/releases/download/v2.2.0/BitcoinPrice-2.2.0.jar
+```
+
+Eine bestehende 2.1.1-Downloadquelle bis zur Veröffentlichung beibehalten oder
+die neue JAR aus dem Build manuell installieren. Die neue Versionsnummer im
+Repository allein stellt keinen Download bereit.
 
 ## 2. Vorhandenen Container und Datenspeicher identifizieren
 
@@ -60,14 +74,14 @@ Welt und das vorhandene `/data`-Volume beibehalten.
 Lokal die JAR auf den VPS kopieren (SSH-Benutzer und Host anpassen):
 
 ```powershell
-scp .\BitcoinPrice-2.1.1.jar root@vps.example.com:/tmp/BitcoinPrice-2.1.1.jar
+scp .\BitcoinPrice-2.2.0.jar root@vps.example.com:/tmp/BitcoinPrice-2.2.0.jar
 ```
 
 Auf dem VPS:
 
 ```bash
 sudo install -d -m 755 /srv/minecraft/plugins
-sudo install -m 644 /tmp/BitcoinPrice-2.1.1.jar /srv/minecraft/plugins/BitcoinPrice.jar
+sudo install -m 644 /tmp/BitcoinPrice-2.2.0.jar /srv/minecraft/plugins/BitcoinPrice.jar
 ```
 
 In **der bestehenden** Compose-Konfiguration beim Minecraft-Service ergänzen:
@@ -123,7 +137,7 @@ docker exec "$MC" ls -l /data/plugins
 docker exec "$MC" mkdir -p /data/plugin-backups
 # Vorhandene BitcoinPrice-JARs gezielt nach /data/plugin-backups verschieben.
 docker stop --time 60 "$MC"
-docker cp /tmp/BitcoinPrice-2.1.1.jar "$MC":/data/plugins/BitcoinPrice.jar
+docker cp /tmp/BitcoinPrice-2.2.0.jar "$MC":/data/plugins/BitcoinPrice.jar
 docker start "$MC"
 docker logs --since 2m "$MC"
 ```
@@ -136,14 +150,24 @@ damit beim nächsten Start keine alte JAR zurückkopiert wird.
 
 ## 4. Prüfen und konfigurieren
 
-- Logs: `BitcoinPrice 2.1.1 wurde erfolgreich aktiviert!`, keine Ladefehler.
+- Logs: `BitcoinPrice 2.2.0 wurde erfolgreich aktiviert!`, keine Ladefehler.
 - In der Serverkonsole: `plugins`, `version BitcoinPrice`, `btc`, `btceur`, `btcusd`.
 - Im Spiel: `/btc`, `/btc help`, `/btc currency BOTH` (persönlich), `/btc global currency BOTH` (Admin), `/btc off`, `/btc on`.
 - Als OP: `/btc off all` und `/btc on all` prüfen.
 - Als OP: `/btc player <Name|UUID> off`, `/btc player <Name|UUID> on`, `/btc player <Name|UUID> currency CHF` und `/btc player <Name|UUID> settings` prüfen.
+- Actionbar: `/btc display actionbar continuous` für dauerhafte Anzeige oder `/btc display actionbar interval 5` für eine kurze Anzeige alle fünf Minuten. `/btc display actionbar interval DEFAULT` verwendet das globale Intervall.
+- Als OP: `/btc player <Name|UUID> display actionbar interval 1` und anschließend `settings` prüfen. Ein eigener Minutenwert bleibt bei globalen Intervalländerungen erhalten.
 - Unterstützte Währungen: EUR, USD, GBP, CHF, CAD, AUD, JPY, CNY und INR; BOTH zeigt EUR und USD. Das virtuelle Portfolio bleibt EUR-basiert.
 - Konfiguration: `/data/plugins/BitcoinPrice/config.yml`, standardmäßig EUR/10 Minuten.
 - Für manuelle Konfigurationsänderungen den Server vollständig neu starten.
+
+Bestehende Spielerpräferenzen werden kompatibel geladen; bisherige Actionbars
+verwenden automatisch `continuous`. In diesem Modus wird der Cache jede Sekunde
+angezeigt. Im Intervallmodus erfolgt die kurze Anzeige nach dem persönlichen
+oder globalen Minutenintervall, unabhängig von API-Refreshes. Der alte Schlüssel
+`actionbar-seconds` wird ab 2.2 ignoriert. Chat-Nachrichten behalten das globale
+`price-interval`; `/btc interval` zeigt zusätzlich dessen Rolle als
+Standardintervall für Actionbars an.
 
 HTTP 429 bedeutet CoinGecko-Ratenbegrenzung; später erneut versuchen.
 HTTPS-Zugriff und DNS aus dem Container müssen funktionieren. Kein zusätzlicher

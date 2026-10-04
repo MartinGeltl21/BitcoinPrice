@@ -75,22 +75,32 @@ public final class PlayerPreferencesService implements AutoCloseable {
 
     public synchronized void setNotifications(UUID player, boolean enabled) {
         Preferences old = get(player);
-        set(player, new Preferences(enabled, old.currency(), old.display(), old.locale()));
+        set(player, new Preferences(enabled, old.currency(), old.display(), old.locale(),
+                old.actionbarMode(), old.actionbarIntervalMinutes()));
     }
 
     public synchronized void setCurrency(UUID player, String currency) {
         Preferences old = get(player);
-        set(player, new Preferences(old.notifications(), currency, old.display(), old.locale()));
+        set(player, new Preferences(old.notifications(), currency, old.display(), old.locale(),
+                old.actionbarMode(), old.actionbarIntervalMinutes()));
     }
 
     public synchronized void setDisplay(UUID player, DisplayMode display) {
         Preferences old = get(player);
-        set(player, new Preferences(old.notifications(), old.currency(), display, old.locale()));
+        set(player, new Preferences(old.notifications(), old.currency(), display, old.locale(),
+                old.actionbarMode(), old.actionbarIntervalMinutes()));
+    }
+
+    public synchronized void setActionbar(UUID player, ActionbarMode mode, int intervalMinutes) {
+        Preferences old = get(player);
+        set(player, new Preferences(old.notifications(), old.currency(), DisplayMode.ACTIONBAR, old.locale(),
+                mode, intervalMinutes));
     }
 
     public synchronized void setLocale(UUID player, String locale) {
         Preferences old = get(player);
-        set(player, new Preferences(old.notifications(), old.currency(), old.display(), locale));
+        set(player, new Preferences(old.notifications(), old.currency(), old.display(), locale,
+                old.actionbarMode(), old.actionbarIntervalMinutes()));
     }
 
     private void set(UUID player, Preferences preferences) {
@@ -251,7 +261,9 @@ public final class PlayerPreferencesService implements AutoCloseable {
                 PlayerData data = new PlayerData();
                 JSONObject prefs = stored.getJSONObject("preferences");
                 data.preferences = new Preferences(prefs.getBoolean("notifications"), prefs.getString("currency"),
-                        DisplayMode.valueOf(prefs.getString("display")), prefs.getString("locale"));
+                        DisplayMode.valueOf(prefs.getString("display")), prefs.getString("locale"),
+                        prefs.has("actionbarMode") ? ActionbarMode.valueOf(prefs.getString("actionbarMode")) : ActionbarMode.CONTINUOUS,
+                        actionbarIntervalMinutes(prefs));
                 JSONArray alerts = stored.getJSONArray("alerts");
                 if (alerts.length() > MAX_ALERTS) throw new IllegalArgumentException("Too many stored alerts");
                 for (int i = 0; i < alerts.length(); i++) {
@@ -305,6 +317,17 @@ public final class PlayerPreferencesService implements AutoCloseable {
         return uuid;
     }
 
+    private static int actionbarIntervalMinutes(JSONObject preferences) {
+        if (!preferences.has("actionbarIntervalMinutes")) return 0;
+        Object stored = preferences.get("actionbarIntervalMinutes");
+        if (!(stored instanceof Number number)) throw new IllegalArgumentException("Actionbar interval must be a JSON number");
+        try {
+            return new BigDecimal(number.toString()).intValueExact();
+        } catch (ArithmeticException ex) {
+            throw new IllegalArgumentException("Actionbar interval must be an exact integer", ex);
+        }
+    }
+
     private static Instant instant(JSONObject object, String key) {
         return object.isNull(key) ? null : Instant.parse(object.getString(key));
     }
@@ -316,7 +339,9 @@ public final class PlayerPreferencesService implements AutoCloseable {
             Preferences prefs = data.preferences;
             JSONObject stored = new JSONObject().put("preferences", new JSONObject()
                     .put("notifications", prefs.notifications()).put("currency", prefs.currency())
-                    .put("display", prefs.display().name()).put("locale", prefs.locale()));
+                    .put("display", prefs.display().name()).put("locale", prefs.locale())
+                    .put("actionbarMode", prefs.actionbarMode().name())
+                    .put("actionbarIntervalMinutes", prefs.actionbarIntervalMinutes()));
             JSONArray alerts = new JSONArray();
             data.alerts.values().forEach(state -> alerts.put(new JSONObject()
                     .put("id", state.alert.id().toString()).put("direction", state.alert.direction().name())

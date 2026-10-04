@@ -16,7 +16,6 @@ public final class ConfigManager {
     private boolean broadcastsEnabled;
     private Locale locale;
     private int monitorSeconds;
-    private int actionbarSeconds;
     private int historyHours;
     private int alertCooldownSeconds;
     private String messagePrefix;
@@ -42,7 +41,6 @@ public final class ConfigManager {
             if (locale.getLanguage().isBlank()) throw new IllegalArgumentException();
         } catch (RuntimeException invalid) { warn("locale", "de-DE"); locale = Locale.GERMANY; }
         monitorSeconds = bounded("monitor-seconds", 60, 30, 3600);
-        actionbarSeconds = bounded("actionbar-seconds", 5, 1, 60);
         historyHours = bounded("history-hours", 168, 1, 168);
         alertCooldownSeconds = bounded("alert-cooldown-seconds", 300, 1, 86400);
         int timeout = bounded("api.timeout", 10000, 100, 30000);
@@ -112,7 +110,8 @@ public final class ConfigManager {
     public boolean isBroadcastsEnabled() { return broadcastsEnabled; }
     public Locale getLocale() { return locale; }
     public int getMonitorSeconds() { return monitorSeconds; }
-    public int getActionbarSeconds() { return actionbarSeconds; }
+    /** Legacy configuration no longer controls per-player display timing. */
+    @Deprecated public int getActionbarSeconds() { return 1; }
     public int getHistoryHours() { return historyHours; }
     public int getAlertCooldownSeconds() { return alertCooldownSeconds; }
     public String getMessagePrefix() { return messagePrefix; }

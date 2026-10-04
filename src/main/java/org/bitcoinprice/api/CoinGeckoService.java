@@ -57,6 +57,15 @@ public final class CoinGeckoService implements AutoCloseable {
     public CompletableFuture<PriceQuote> fetchBitcoinPrice() { return request(false); }
     public CompletableFuture<PriceQuote> forceRefresh() { return request(true); }
 
+    /** Public diagnostics contain cached data only, without provider URLs or credentials. */
+    public record ServiceStatus(Optional<PriceQuote> quote, boolean requestInFlight, long retryAfterSeconds) { }
+
+    /** Inspect the cache and retry state without starting a request or changing its cooldown. */
+    public synchronized ServiceStatus status() {
+        long retrySeconds = closed ? 0 : Math.max(0, Duration.between(clock.instant(), nextAttempt).getSeconds());
+        return new ServiceStatus(cachedQuote(), !closed && inFlight != null && !inFlight.isDone(), retrySeconds);
+    }
+
     private synchronized CompletableFuture<PriceQuote> request(boolean force) {
         if (closed) return CompletableFuture.failedFuture(new IOException("Price service is closed."));
         Instant now = clock.instant();

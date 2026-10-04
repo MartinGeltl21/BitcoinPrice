@@ -8,6 +8,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $taskRepo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$taskProject = [xml][IO.File]::ReadAllText((Join-Path $taskRepo 'pom.xml'))
+$taskVersion = [string]$taskProject.project.version
+if ($taskVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
+    throw 'Cannot determine a safe plugin version from pom.xml.'
+}
+$taskPluginJar = "target/BitcoinPrice-$taskVersion.jar"
 $taskWorkspace = [IO.Path]::GetFullPath($Workspace)
 if ($taskWorkspace.StartsWith($taskRepo + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Use a separate temporary directory outside the repository for the Paper test world.'
@@ -72,7 +78,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRepo 'src/test/paper/plugin.yml') -Destination (Join-Path $taskClasses 'plugin.yml') -Force
     & "$env:JAVA_HOME/bin/jar.exe" --create --file (Join-Path $taskWorkspace 'plugins/BitcoinPriceSmoke.jar') -C $taskClasses .
     if ($LASTEXITCODE -ne 0) { throw 'Paper test plugin packaging failed.' }
-    Copy-Item -LiteralPath (Join-Path $taskRepo 'target/BitcoinPrice-2.1.1.jar') -Destination (Join-Path $taskWorkspace 'plugins/BitcoinPrice.jar') -Force
+    Copy-Item -LiteralPath (Join-Path $taskRepo $taskPluginJar) -Destination (Join-Path $taskWorkspace 'plugins/BitcoinPrice.jar') -Force
 } finally { Pop-Location }
 Push-Location $taskWorkspace
 try {
