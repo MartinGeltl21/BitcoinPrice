@@ -31,6 +31,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
     private static final UUID OFFLINE_TARGET = UUID.fromString("b3a3ee0f-cd0e-40f5-9c55-c92ad57a5044");
     private final AtomicInteger requests = new AtomicInteger();
     private final List<String> received = new ArrayList<>();
+    private final List<Component> receivedComponents = new ArrayList<>();
     private HttpServer http;
     private BitcoinPrice plugin;
     private Player player;
@@ -72,7 +73,10 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
                 case "getLocale" -> "de_de";
                 case "sendMessage", "sendActionBar" -> {
                     if (args != null) for (Object value : args) {
-                        if (value instanceof Component component) received.add(PlainTextComponentSerializer.plainText().serialize(component));
+                        if (value instanceof Component component) {
+                            received.add(PlainTextComponentSerializer.plainText().serialize(component));
+                            receivedComponents.add(component);
+                        }
                         else if (value instanceof String text) received.add(text);
                     }
                     yield null;
@@ -111,6 +115,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
             Bukkit.getScheduler().runTaskLater(this, () -> guarded(this::verifyRestoredBoard), 40);
             return;
         }
+        verifyHelp(false);
         String originalConfig = plugin.getConfig().saveToString();
         plugin.getConfig().set("price-interval", 1.5);
         plugin.getConfig().set("price-currency", "eur");
@@ -185,6 +190,7 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
         op = true; // Explicitly exercise OP while bitcoinprice.admin permission remains false.
         check(!player.hasPermission("bitcoinprice.admin") && !player.hasPermission("bitcoinprice.use") && player.isOp(),
                 "fixture distinguishes OP from both admin and use permissions");
+        verifyHelp(true);
         command(player, "player", "BitcoinSmoke", "on");
         check(prefs.get(OWNER).notifications(), "OP can enable individual player using exact name");
         command(player, "player", OWNER.toString(), "off");
@@ -255,6 +261,74 @@ public final class BitcoinPriceSmoke extends JavaPlugin {
     private PriceSnapshot snapshot(String eur) {
         Instant sampleTime = Instant.now().plusNanos(++sampleSequence);
         return new PriceSnapshot(new BigDecimal(eur), new BigDecimal("90000"), null, null, sampleTime, sampleTime);
+    }
+    private record HelpOutput(List<String> text, List<Component> components) { }
+    private HelpOutput helpOutput(boolean alias, String... args) {
+        int textStart = received.size(), componentStart = receivedComponents.size();
+        if (alias) plugin.getCommand("btchelp").execute(player, "btchelp", args);
+        else {
+            String[] delegated = new String[args.length + 1]; delegated[0] = "help";
+            System.arraycopy(args, 0, delegated, 1, args.length);
+            command(player, delegated);
+        }
+        return new HelpOutput(List.copyOf(received.subList(textStart, received.size())),
+                List.copyOf(receivedComponents.subList(componentStart, receivedComponents.size())));
+    }
+    private static boolean hasHelpClick(Component component, String command) {
+        if (net.kyori.adventure.text.event.ClickEvent.runCommand(command).equals(component.clickEvent())) return true;
+        return component.children().stream().anyMatch(child -> hasHelpClick(child, command));
+    }
+    private void verifyHelp(boolean administrator) {
+        int beforeHttp = requests.get();
+        int pages = plugin.getBtcCommand().helpPageCount(player);
+        List<String> all = new ArrayList<>();
+        for (int page = 1; page <= pages; page++) {
+            HelpOutput main = helpOutput(false, Integer.toString(page));
+            HelpOutput alias = helpOutput(true, Integer.toString(page));
+            check(main.equals(alias) && main.text().size() <= 10 && main.text().getFirst().contains("Hilfe " + page + "/" + pages),
+                    (administrator ? "OP" : "normal") + " help aliases produce identical bounded page " + page);
+            all.addAll(main.text());
+            int nextPage = page + 1;
+            if (page < pages) check(main.components().stream().anyMatch(component -> hasHelpClick(component, "/btc help " + nextPage)),
+                    "help next-page footer has executable Adventure navigation");
+        }
+        check(helpOutput(false).equals(helpOutput(false, "1")) && helpOutput(true).equals(helpOutput(false, "1")),
+                "both default help commands open exactly page one");
+        check(plugin.getCommand("btchelp").tabComplete(player, "btchelp", new String[]{""}).equals(
+                        plugin.getBtcCommand().onTabComplete(player, plugin.getCommand("btc"), "btc", new String[]{"help", ""})),
+                "both help commands complete identical valid page numbers");
+        check(all.stream().anyMatch(text -> text.contains("/btc interval —"))
+                        && all.stream().anyMatch(text -> text.contains("/btc currency —"))
+                        && all.stream().anyMatch(text -> text.contains("/btc portfolio —"))
+                        && all.stream().anyMatch(text -> text.contains("/btc portfolio start"))
+                        && all.stream().anyMatch(text -> text.contains("/btc portfolio buy"))
+                        && all.stream().anyMatch(text -> text.contains("/btc portfolio sell")),
+                "complete help includes normal read-only interval/currency and all portfolio commands");
+        check(all.stream().anyMatch(text -> text.contains("BOTH zeigt EUR und USD"))
+                        && all.stream().anyMatch(text -> text.contains("DEFAULT übernimmt"))
+                        && all.stream().anyMatch(text -> text.contains("Spielgeld"))
+                        && all.stream().anyMatch(text -> text.contains("Währungen:") && text.contains("GBP") && text.contains("JPY")),
+                "help separately explains extended currencies, BOTH, DEFAULT and virtual money");
+        if (administrator) {
+            check(all.stream().anyMatch(text -> text.contains("/btc global currency"))
+                            && all.stream().anyMatch(text -> text.contains("/btc player <Name|UUID> currency"))
+                            && all.stream().anyMatch(text -> text.contains("/btc board create"))
+                            && all.stream().anyMatch(text -> text.contains("/btc interval <1|5|10|30|60>")),
+                    "OP help includes complete administrative commands even when use/admin permission denied");
+        } else {
+            check(all.stream().noneMatch(text -> text.contains("OP/Admin") || text.contains("/btc player ")
+                            || text.contains("/btc global ") || text.contains("/btc refresh")
+                            || text.contains("/btc interval <") || text.contains("/btc board create")),
+                    "normal help hides administrative commands");
+        }
+        for (String bad : List.of("0", "-1", Integer.toString(pages + 1), "1.5", "abc", "2147483648")) {
+            HelpOutput main = helpOutput(false, bad), alias = helpOutput(true, bad);
+            check(main.equals(alias) && main.text().size() == 1 && main.text().getFirst().contains("Hilfe-Seite"),
+                    "both help commands reject invalid page " + bad + " consistently");
+        }
+        check(helpOutput(false, "1", "extra").equals(helpOutput(true, "1", "extra")),
+                "both help commands reject extra arguments consistently");
+        check(requests.get() == beforeHttp, "help pages, aliases and invalid arguments never request HTTP");
     }
     private void command(CommandSender sender, String... args) {
         plugin.getBtcCommand().onCommand(sender, plugin.getCommand("btc"), "btc", args);

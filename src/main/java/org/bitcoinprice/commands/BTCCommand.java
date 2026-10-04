@@ -15,6 +15,10 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.OfflinePlayer;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -33,6 +37,7 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
     private final BitcoinPrice plugin;
     private final Set<UUID> pendingPlayers = new java.util.HashSet<>();
     private boolean pendingConsole;
+    private static final int HELP_PAGE_SIZE = 8;
     private static final Map<String, Duration> PERIODS = Map.of("1h", Duration.ofHours(1), "6h", Duration.ofHours(6), "24h", Duration.ofHours(24), "7d", Duration.ofDays(7));
     public BTCCommand(BitcoinPrice plugin) { this.plugin = plugin; }
     private MessageFormatter messages() { return plugin.getMessages(); }
@@ -43,7 +48,10 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
             String sub = args[0].toLowerCase(Locale.ROOT);
             switch (sub) {
                 case "price" -> { exact(args, 1); showPrice(sender, null); }
-                case "help" -> { exact(args, 1); showHelp(sender); }
+                case "help" -> {
+                    if (args.length > 2) throw usage("Verwendung: /btc help [Seite] oder /btchelp [Seite]");
+                    showHelp(sender, args.length == 1 ? "1" : args[1]);
+                }
                 case "interval" -> interval(sender, args);
                 case "currency" -> currency(sender, args);
                 case "player" -> targetSettings(sender, args);
@@ -317,30 +325,103 @@ public final class BTCCommand implements CommandExecutor, TabCompleter {
                 + " EUR | " + MessageFormatter.number(balance.bitcoin(), messages().locale(sender), 8) + " BTC");
     }
     public void showHelp(CommandSender sender) {
+        showHelp(sender, 1);
+    }
+    public void showHelp(CommandSender sender, String rawPage) {
         if (!allowed(sender)) return;
-        messages().send(sender, "&6BitcoinPrice – Befehle");
-        for (String line : List.of("/btc [price] | /btceur | /btcusd – aktueller Kurs", "/btc currency <Währung|BOTH|DEFAULT> – persönliche Währung",
-                "/btc on|off – persönliche Kursnachrichten", "/btc display chat|actionbar|off – Anzeige", "/btc locale de-DE|en-US|DEFAULT | settings",
-                "/btc alert above|below <Betrag> <Währung>", "/btc alert list | remove <ID> – explizite Preisalarme", "/btc sats <Betrag> <Währung> – Umrechnung in Satoshi",
-                "/btc history [1h|6h|24h|7d] – gespeicherte Messungen", "/btc board list – Kurstafeln", "/btc portfolio start | buy <EUR> | sell <BTC>",
-                "Portfolio: freiwilliges Lernspiel mit virtuellem Geld; keine echten Käufe.")) messages().send(sender, line);
-        messages().send(sender, "Währungen: " + String.join(", ", CurrencyCatalog.codes()) + ". BOTH = EUR und USD; DEFAULT = globale Auswahl.");
-        if (isAdmin(sender)) {
-            messages().send(sender, "OP/Admin: /btc interval 1|5|10|30|60 | global currency <Währung|BOTH> | refresh | on|off all");
-            messages().send(sender, "Admin: /btc board create [Name] | remove <Name>");
-            messages().send(sender, "OP/Admin: /btc player <Name|UUID> on|off|settings | currency <Währung|BOTH|DEFAULT>");
-            messages().send(sender, "OP/Admin: /btc player <Name|UUID> display chat|actionbar|off | locale <de-DE|en-US|DEFAULT>");
+        if (!rawPage.matches("[1-9][0-9]{0,8}")) { invalidHelpPage(sender); return; }
+        showHelp(sender, Integer.parseInt(rawPage));
+    }
+    public int helpPageCount(CommandSender sender) {
+        return (helpEntries(isAdmin(sender)).size() + HELP_PAGE_SIZE - 1) / HELP_PAGE_SIZE;
+    }
+    private void invalidHelpPage(CommandSender sender) {
+        messages().error(sender, "Hilfe-Seite muss eine ganze Zahl von 1 bis " + helpPageCount(sender) + " sein. /btc help [Seite] oder /btchelp [Seite]");
+    }
+    public void showHelp(CommandSender sender, int page) {
+        if (!allowed(sender)) return;
+        List<String> entries = helpEntries(isAdmin(sender));
+        int pages = helpPageCount(sender);
+        if (page < 1 || page > pages) { invalidHelpPage(sender); return; }
+        String section = page == 1 ? "Kurs und Hilfe" : page == 2 ? "Persönliche Einstellungen" : page == 3 ? "Alarme, Verlauf und Tafeln" : page == 4 ? "Lernportfolio und Währungen" : "OP/Admin-Verwaltung";
+        messages().send(sender, "&6BitcoinPrice-Hilfe " + page + "/" + pages + " — " + section);
+        int first = (page - 1) * HELP_PAGE_SIZE;
+        for (String entry : entries.subList(first, Math.min(first + HELP_PAGE_SIZE, entries.size()))) messages().send(sender, entry);
+        Component footer = messages().component(plugin.getConfigManager().getMessagePrefix()).append(Component.text("Seiten: ", NamedTextColor.GRAY));
+        if (page > 1) footer = footer.append(helpLink("« Zurück (/btc help " + (page - 1) + ")", page - 1));
+        if (page > 1 && page < pages) footer = footer.append(Component.text(" | ", NamedTextColor.GRAY));
+        if (page < pages) footer = footer.append(helpLink("Weiter » (/btc help " + (page + 1) + ")", page + 1));
+        sender.sendMessage(footer);
+    }
+    private static Component helpLink(String label, int page) {
+        return Component.text(label, NamedTextColor.YELLOW)
+                .clickEvent(ClickEvent.runCommand("/btc help " + page))
+                .hoverEvent(HoverEvent.showText(Component.text("Hilfeseite " + page + " öffnen")));
+    }
+    /** Canonical complete help; exactly eight normal entries per page keep topics together. */
+    public static List<String> helpEntries(boolean administrator) {
+        List<String> entries = new ArrayList<>(List.of(
+                "/btc — aktuellen Bitcoin-Kurs anzeigen",
+                "/btc price — aktuellen Bitcoin-Kurs anzeigen",
+                "/btceur — Bitcoin-Kurs in EUR anzeigen",
+                "/btcusd — Bitcoin-Kurs in USD anzeigen",
+                "/btc help [Seite] — diese Hilfe; ohne Seite: 1",
+                "/btchelp [Seite] — identische Hilfe; ohne Seite: 1",
+                "/btc interval — globales Chat-Intervall ansehen",
+                "/btc currency — deine wirksame Währung ansehen (Konsole: global)",
+                "/btc currency <Währung|BOTH|DEFAULT> — persönliche Währung setzen",
+                "/btc on — deine ausgewählten Kursnachrichten einschalten",
+                "/btc off — deine Kursnachrichten ausschalten; Alarme bleiben separat",
+                "/btc settings — deine gespeicherten Einstellungen ansehen",
+                "/btc display chat — Kurse im Chat anzeigen",
+                "/btc display actionbar — Kurse über der Schnellzugriffsleiste anzeigen",
+                "/btc display off — regelmäßige Kursanzeige ausschalten",
+                "/btc locale <Sprachcode|DEFAULT> — Zahlenformat wählen, z. B. de-DE oder en-US",
+                "/btc alert above <Betrag> <Währung> — Alarm beim Kreuzen nach oben speichern",
+                "/btc alert below <Betrag> <Währung> — Alarm beim Kreuzen nach unten speichern",
+                "/btc alert list — deine Alarme samt ID ansehen",
+                "/btc alert remove <ID> — eigenen Alarm löschen (eindeutige Kurz-ID möglich)",
+                "/btc sats <Betrag> <Währung> — Gegenwert in ganzen Satoshi anzeigen",
+                "/btc history [1h|6h|24h|7d] — gespeicherte Kurse; Standard: 24h",
+                "/btc board list — Namen der Kurstafeln ansehen",
+                "Alarme sind explizit: /btc off und globales Chat-Aus deaktivieren sie nicht.",
+                "/btc portfolio — dein virtuelles Guthaben und BTC ansehen",
+                "/btc portfolio start — Lernportfolio mit 10.000 virtuellen EUR eröffnen; kein Reset",
+                "/btc portfolio buy <EUR-Betrag> — virtuelle BTC zum aktuellen EUR-Kurs kaufen",
+                "/btc portfolio sell <BTC-Betrag> — virtuelle BTC zum aktuellen EUR-Kurs verkaufen",
+                "Währungen: " + String.join(", ", CurrencyCatalog.codes()) + ". Beträge mit Dezimalpunkt, z. B. 10.50.",
+                "BOTH zeigt EUR und USD gemeinsam; Alarme und Satoshi-Umrechnung benötigen eine einzelne Währung.",
+                "DEFAULT übernimmt die globale Auswahl; bei /btc locale das globale Zahlenformat.",
+                "Portfolio: ausschließlich Spielgeld, freiwilliges Lernspiel; keine echten Käufe. Handel benötigt aktuellen Kurs."));
+        if (administrator) {
+            entries.addAll(List.of(
+                    "/btc interval <1|5|10|30|60> — globales Chat-Intervall in Minuten ändern (OP/Admin)",
+                    "/btc global currency <Währung|BOTH> — globale Währung ändern (OP/Admin)",
+                    "/btc refresh — Kurs mit Abfragebegrenzung aktualisieren und an berechtigte Chat-Empfänger senden (OP/Admin)",
+                    "/btc on all — globale Chatnachrichten einschalten (OP/Admin)",
+                    "/btc off all — globale Chatnachrichten ausschalten; persönliche Actionbar/Alarme bleiben separat (OP/Admin)",
+                    "/btc board create [Name] — Tafel an deiner Position erstellen; Standard: spawn (OP/Admin)",
+                    "/btc board remove <Name> — Tafel entfernen (OP/Admin)",
+                    "/btc player <Name|UUID> settings — Spielereinstellungen ansehen (OP/Admin)",
+                    "/btc player <Name|UUID> on — individuelle Kursnachrichten einschalten (OP/Admin)",
+                    "/btc player <Name|UUID> off — individuelle Kursnachrichten ausschalten (OP/Admin)",
+                    "/btc player <Name|UUID> currency <Währung|BOTH|DEFAULT> — individuelle Währung ändern (OP/Admin)",
+                    "/btc player <Name|UUID> display <chat|actionbar|off> — individuelle Anzeige ändern (OP/Admin)",
+                    "/btc player <Name|UUID> locale <Sprachcode|DEFAULT> — individuelles Zahlenformat ändern (OP/Admin)",
+                    "Spielerziele: exakte bekannte Namen oder vollständige UUID; offline speicherbar, keine externe Profilabfrage."));
         }
+        return List.copyOf(entries);
     }
     @Override public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (!sender.isOp() && !sender.hasPermission("bitcoinprice.use")) return List.of();
         List<String> values = new ArrayList<>(); boolean admin = isAdmin(sender);
         String sub = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
         if (args.length == 1) {
-            values.addAll(List.of("price", "help", "currency", "on", "off", "settings", "locale", "display", "alert", "sats", "history", "portfolio", "board"));
-            if (admin) values.addAll(List.of("interval", "global", "refresh", "player"));
+            values.addAll(List.of("price", "help", "interval", "currency", "on", "off", "settings", "locale", "display", "alert", "sats", "history", "portfolio", "board"));
+            if (admin) values.addAll(List.of("global", "refresh", "player"));
         } else if (args.length == 2) {
             switch (sub) {
+                case "help" -> { for (int page = 1; page <= helpPageCount(sender); page++) values.add(Integer.toString(page)); }
                 case "currency" -> values.addAll(sender instanceof Player ? CurrencyCatalog.selectionCodes(true) : admin ? CurrencyCatalog.selectionCodes(false) : List.of());
                 case "player" -> {
                     if (admin) {

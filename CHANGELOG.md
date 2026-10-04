@@ -5,6 +5,13 @@ Alle wichtigen Änderungen am BitcoinPrice-Plugin werden in dieser Datei dokumen
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-10-04
+
+- Vollständige, gemeinsame Hilfeseiten für `/btc help [Seite]` und `/btchelp [Seite]` mit eindeutigen Befehlen und Navigation.
+- Auch Intervall-/Währungsabfrage und Portfolio-Anzeige werden aufgeführt; OP-/Admin-Befehle bleiben nur Berechtigten sichtbar.
+- README mit eigener Illustration, Funktionsübersicht und Anleitung für echte Ingame-Screenshots.
+- Docker-Anleitung erläutert Updates über die vorhandene `PLUGINS`-Downloadquelle.
+
 ## [2.1.0] - 2026-10-04
 
 ### Hinzugefügt

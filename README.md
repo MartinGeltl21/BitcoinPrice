@@ -1,19 +1,61 @@
 # BitcoinPrice
 
-Ein kleines Plugin für **Paper 26.2 / Java 25**. Es zeigt Bitcoin-Kurse in EUR, USD, GBP, CHF, CAD, AUD, JPY, CNY und INR, Tagesänderung und Datenalter und bietet persönliche Anzeigen und Preisalarme. Alle Funktionen verwenden denselben Kurs-Cache; es wird keine externe Datenbank benötigt.
+![BitcoinPrice — Bitcoin-Kurse direkt im Spiel. Blocklandschaft, Münze und stilisierte Kurstafel.](docs/assets/hero.svg)
 
-## Installation und Update
+*Eigene Vektorillustration; kein Spiel-Screenshot und keine realen Kursdaten.*
+
+![Paper 26.2 · Java 25 · Version 2.1.1 · MIT-Lizenz](docs/assets/badges.svg)
+
+Bitcoin-Kurse auf deinem Minecraft-Server: im Chat, in der Actionbar oder auf einer Kurstafel am Spawn. Dazu persönliche Währungen und Preisalarme — mit einem gemeinsamen Cache und ohne zusätzliche Datenbank.
+
+[Features](#features) · [Schnellstart](#schnellstart) · [Spielerbefehle](#befehle-für-spieler) · [Adminbefehle](#befehle-für-administratoren) · [Konfiguration](#konfiguration) · [Screenshots](#screenshots)
+
+## Features
+
+| Funktion | Im Spiel |
+| --- | --- |
+| **Kurse mit Kontext** | Preis, Tagesänderung und getrenntes Abruf- und Datenalter |
+| **Deine Anzeige** | Chat, Actionbar oder aus; persönliche Auswahl aus neun Währungen |
+| **Kurstafeln** | Benannte TextDisplays, die Neustarts überstehen |
+| **Persönliche Alarme** | Benachrichtigung bei einer gewählten Grenzüberschreitung |
+| **Kursverlauf und Satoshis** | Lokale Kurshistorie und direkte Umrechnung |
+| **Virtuelles Lernportfolio** | Freiwillige BTC-Simulation mit Spielgeld |
+
+OPs können Einstellungen einzelner Spieler verwalten. Ohne Empfänger oder geladene Kurstafel ruhen die Hintergrundabfragen; API-Limits und veraltete Daten werden berücksichtigt.
+
+## Schnellstart
+
+**Voraussetzung:** Paper 26.2 und Java 25. Minecraft-Clients benötigen keine zusätzliche Mod.
+
+### Installation und Update
 
 1. Die JAR aus dem Build-Artefakt dieses Branches herunterladen oder `mvn clean verify` mit JDK 25 ausführen.
 2. Server stoppen und bestehende Plugin-JAR und den Ordner `plugins/BitcoinPrice` sichern.
-3. Genau eine JAR installieren: `BitcoinPrice-2.1.0.jar`. Die Datei `original-*.jar` nicht verwenden.
+3. Genau eine JAR installieren: `BitcoinPrice-2.1.1.jar`. Die Datei `original-*.jar` nicht verwenden.
 4. Server vollständig starten. Bestehende `config.yml` bleibt lesbar; fehlende Einstellungen erhalten Standardwerte.
 
 Die Minecraft-Welt und das bestehende `/data`-Volume bleiben erhalten. Eine Anleitung für Docker/Coolify steht in [docs/docker-compose.md](docs/docker-compose.md). Kein `/reload` oder Hotloader.
 
+### Im Spiel loslegen
+
+```text
+/btc
+/btc currency EUR
+/btc display actionbar
+/btc on
+```
+
+Der erste Befehl zeigt den Kurs. Die weiteren wählen die eigene Währung und aktivieren die Actionbar. Für regelmäßige Chat-Nachrichten `/btc display chat` verwenden. Als OP kannst du mit `/btc board create spawn` eine Kurstafel am eigenen Standort erstellen.
+
 **Änderung in 2.0:** `/btc currency` ändert für Spieler die persönliche Währung. Die globale Einstellung heißt jetzt `/btc global currency`. Globale Änderungen und Refresh benötigen `bitcoinprice.admin` (standardmäßig OP). Ein Intervallwechsel löst keine Sofortnachricht mehr aus.
 
 **Neu in 2.1:** Weitere Währungen und OP-Steuerung für einzelne Spieler. OPs können alle Funktionen auch bei abweichenden Permission-Zuweisungen verwenden. Der Java-Namespace und die veröffentlichten Projektdateien verwenden neutrale Namen; bestehende Plugin-Daten bleiben kompatibel.
+
+**Neu in 2.1.1:** Die Hilfe ist in übersichtliche Seiten aufgeteilt: `/btc help 1`, `/btc help 2` oder `/btchelp 1`. Die Navigation zeigt, welche Seiten für die eigenen Rechte verfügbar sind.
+
+## Screenshots
+
+Für die Bildgalerie sind echte Spielaufnahmen vorgesehen: **Kurstafel**, **Actionbar** und **Chat-Kurs**, optional eine Seite der Hilfe. Die [Screenshot-Anleitung](docs/screenshots.md) enthält die passenden Befehle und Bildausschnitte. Sobald echte Aufnahmen vorliegen, ergänzen sie die Illustration oben.
 
 ## Befehle für Spieler
 
@@ -21,10 +63,11 @@ Die Minecraft-Welt und das bestehende `/data`-Volume bleiben erhalten. Eine Anle
 | --- | --- |
 | `/btc`, `/btc price` | Kurs, 24-Stunden-Veränderung und Datenalter |
 | `/btceur`, `/btcusd` | Kurs in einer bestimmten Währung |
-| `/btc help`, `/btchelp` | Gemeinsame Hilfe |
+| `/btc help [Seite]`, `/btchelp [Seite]` | Gemeinsame Hilfe mit Seitennavigation; ohne Zahl beginnt sie auf Seite 1 |
 | `/btc settings` | Persönliche Einstellungen |
+| `/btc currency` | Wirksame persönliche Währung ansehen |
 | `/btc currency <CODE>` | Persönliche Währung; DEFAULT übernimmt die globale Auswahl, BOTH zeigt EUR und USD |
-| `/btc locale de-DE\|en-US\|DEFAULT` | Persönliches Zahlenformat |
+| `/btc locale <Sprachcode>\|DEFAULT` | Persönliches Zahlenformat, z. B. de-DE oder en-US |
 | `/btc display chat\|actionbar\|off` | Persönliche Anzeigeform |
 | `/btc on`, `/btc off` | Eigene regelmäßige Intervall-Anzeige aktivieren/deaktivieren |
 | `/btc interval` | Globales Chat-Intervall ansehen |
@@ -61,7 +104,7 @@ Preisalarm und Actionbar sind optional. Ein Alarm beginnt mit einer Baseline bei
 | `/btc player <Name\|UUID> currency <CODE>\|BOTH\|DEFAULT` | Persönliche Währung eines Spielers ändern |
 | `/btc player <Name\|UUID> settings` | Gespeicherte Einstellungen eines Spielers ansehen |
 | `/btc player <Name\|UUID> display chat\|actionbar\|off` | Anzeigeform eines Spielers wählen |
-| `/btc player <Name\|UUID> locale de-DE\|en-US\|DEFAULT` | Zahlenformat eines Spielers wählen |
+| `/btc player <Name\|UUID> locale <Sprachcode>\|DEFAULT` | Zahlenformat eines Spielers wählen |
 
 Globale Chat-Deaktivierung lässt persönliche, ausdrücklich aktivierte Actionbars und Alarme bestehen. Individuelle Präferenzen werden dadurch nicht überschrieben. Kurstafeln laden keine Chunks dauerhaft nach und werden nach einem Neustart wiedererkannt. Es werden ausschließlich vom Plugin markierte Anzeigen verwaltet.
 

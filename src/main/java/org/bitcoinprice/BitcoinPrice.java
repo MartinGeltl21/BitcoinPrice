@@ -51,7 +51,9 @@ public final class BitcoinPrice extends JavaPlugin {
         btcCommand = new BTCCommand(this);
         Objects.requireNonNull(getCommand("btc")).setExecutor(btcCommand);
         Objects.requireNonNull(getCommand("btc")).setTabCompleter(btcCommand);
-        Objects.requireNonNull(getCommand("btchelp")).setExecutor(new BTCHelpCommand(this));
+        BTCHelpCommand helpCommand = new BTCHelpCommand(this);
+        Objects.requireNonNull(getCommand("btchelp")).setExecutor(helpCommand);
+        Objects.requireNonNull(getCommand("btchelp")).setTabCompleter(helpCommand);
         Objects.requireNonNull(getCommand("btceur")).setExecutor(new BTCEURCommand(this));
         Objects.requireNonNull(getCommand("btcusd")).setExecutor(new BTCUSDCommand(this));
         if (((Object) boards) instanceof Listener listener) {

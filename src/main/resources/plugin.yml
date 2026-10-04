@@ -7,10 +7,10 @@ description: Bitcoin-Kurse, persönliche Alarme, Anzeigen und ein virtuelles Por
 commands:
   btc:
     description: Bitcoin-Kurs, persönliche Einstellungen und Hilfe
-    usage: /<command> help
+    usage: /<command> help [Seite]
   btchelp:
-    description: Zeigt alle verfügbaren BitcoinPrice-Befehle
-    usage: /<command>
+    description: Zeigt alle verfügbaren BitcoinPrice-Befehle mit Hilfeseiten
+    usage: /<command> [Seite]
   btceur:
     description: Zeigt den Bitcoin-Kurs in Euro
     usage: /<command>
