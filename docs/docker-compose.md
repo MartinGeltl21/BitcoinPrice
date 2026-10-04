@@ -1,14 +1,14 @@
 # Installation auf einem bestehenden Docker-Compose-/Coolify-Server
 
-BitcoinPrice 1.2.0 ist für Paper **26.2** mit **Java 25** gebaut, gegen
+BitcoinPrice 2.0.0 ist für Paper **26.2** mit **Java 25** gebaut, gegen
 Paper-API Build 123. Der Minecraft-Client benötigt kein Plugin.
 
 ## 1. JAR besorgen
 
 Auf GitHub unter **Actions → Build → erfolgreicher Lauf → Artifacts** das
-Archiv `BitcoinPrice-1.2.0` herunterladen und entpacken. Alternativ mit
+Archiv `BitcoinPrice-2.0.0` herunterladen und entpacken. Alternativ mit
 JDK 25 und Maven `mvn clean verify` ausführen; die fertige Datei heißt
-`target/BitcoinPrice-1.2.0.jar`. Nicht `original-*.jar` installieren.
+`target/BitcoinPrice-2.0.0.jar`. Nicht `original-*.jar` installieren.
 
 Die fertige JAR enthält die JSON-Bibliothek; zusätzliche Plugins sind nicht nötig.
 
@@ -33,14 +33,14 @@ Welt und das vorhandene `/data`-Volume beibehalten.
 Lokal die JAR auf den VPS kopieren (SSH-Benutzer und Host anpassen):
 
 ```powershell
-scp .\BitcoinPrice-1.2.0.jar root@vps.martingeltl.de:/tmp/BitcoinPrice-1.2.0.jar
+scp .\BitcoinPrice-2.0.0.jar root@vps.martingeltl.de:/tmp/BitcoinPrice-2.0.0.jar
 ```
 
 Auf dem VPS:
 
 ```bash
 sudo install -d -m 755 /srv/minecraft/plugins
-sudo install -m 644 /tmp/BitcoinPrice-1.2.0.jar /srv/minecraft/plugins/BitcoinPrice.jar
+sudo install -m 644 /tmp/BitcoinPrice-2.0.0.jar /srv/minecraft/plugins/BitcoinPrice.jar
 ```
 
 In **der bestehenden** Compose-Konfiguration beim Minecraft-Service ergänzen:
@@ -96,7 +96,7 @@ docker exec "$MC" ls -l /data/plugins
 docker exec "$MC" mkdir -p /data/plugin-backups
 # Vorhandene BitcoinPrice-JARs gezielt nach /data/plugin-backups verschieben.
 docker stop --time 60 "$MC"
-docker cp /tmp/BitcoinPrice-1.2.0.jar "$MC":/data/plugins/BitcoinPrice.jar
+docker cp /tmp/BitcoinPrice-2.0.0.jar "$MC":/data/plugins/BitcoinPrice.jar
 docker start "$MC"
 docker logs --since 2m "$MC"
 ```
@@ -109,9 +109,9 @@ damit beim nächsten Start keine alte JAR zurückkopiert wird.
 
 ## 4. Prüfen und konfigurieren
 
-- Logs: `BitcoinPrice Plugin wurde erfolgreich aktiviert!`, keine Ladefehler.
+- Logs: `BitcoinPrice 2.0.0 wurde erfolgreich aktiviert!`, keine Ladefehler.
 - In der Serverkonsole: `plugins`, `version BitcoinPrice`, `btc`, `btceur`, `btcusd`.
-- Im Spiel: `/btc`, `/btc help`, `/btc currency BOTH`, `/btc off`, `/btc on`.
+- Im Spiel: `/btc`, `/btc help`, `/btc currency BOTH` (persönlich), `/btc global currency BOTH` (Admin), `/btc off`, `/btc on`.
 - Als OP: `/btc off all` und `/btc on all` prüfen.
 - Konfiguration: `/data/plugins/BitcoinPrice/config.yml`, standardmäßig EUR/10 Minuten.
 - Für manuelle Konfigurationsänderungen den Server vollständig neu starten.

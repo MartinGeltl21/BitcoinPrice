@@ -21,6 +21,6 @@ jobs:
       - run: mvn --batch-mode --no-transfer-progress clean verify
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: BitcoinPrice-1.2.0
-          path: target/BitcoinPrice-1.2.0.jar
+          name: BitcoinPrice-2.0.0
+          path: target/BitcoinPrice-2.0.0.jar
           if-no-files-found: error

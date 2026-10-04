@@ -1,0 +1,5 @@
+name: BitcoinPriceSmoke
+version: '1.0'
+main: me.martingeltl.bitcoin.smoke.BitcoinPriceSmoke
+api-version: '26.2'
+depend: [BitcoinPrice]

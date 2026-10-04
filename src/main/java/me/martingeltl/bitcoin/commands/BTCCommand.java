@@ -1,275 +1,295 @@
 package me.martingeltl.bitcoin.commands;
 
 import me.martingeltl.bitcoin.BitcoinPrice;
-import org.bukkit.ChatColor;
+import me.martingeltl.bitcoin.model.PriceQuote;
+import me.martingeltl.bitcoin.model.PriceSnapshot;
+import me.martingeltl.bitcoin.preferences.AlertDirection;
+import me.martingeltl.bitcoin.preferences.DisplayMode;
+import me.martingeltl.bitcoin.preferences.PortfolioBalance;
+import me.martingeltl.bitcoin.preferences.Preferences;
+import me.martingeltl.bitcoin.presentation.MessageFormatter;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
-
-import java.util.HashSet;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
-/**
- * Handler für den Hauptbefehl /btc
- */
-public class BTCCommand implements CommandExecutor {
-
+/** Main command. Syntax is validated before HTTP requests or mutation. */
+public final class BTCCommand implements CommandExecutor, TabCompleter {
     private final BitcoinPrice plugin;
-    // Set zur Speicherung von Spielern, die keine BTC-Preis Nachrichten erhalten möchten
-    private static final Set<UUID> disabledPlayers = new HashSet<>();
-    // Flag, ob Broadcasts für alle deaktiviert sind
-    private static boolean broadcastsDisabled = false;
-    
-    public BTCCommand(BitcoinPrice plugin) {
-        this.plugin = plugin;
-    }
-    
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (args.length > 0) {
-            if (args[0].equalsIgnoreCase("help")) {
-                sendHelpMessage(sender);
-                return true;
-            } else if (args[0].equalsIgnoreCase("interval")) {
-                if (args.length > 1) {
-                    try {
-                        int interval = Integer.parseInt(args[1]);
-                        return handleIntervalChange(sender, interval);
-                    } catch (NumberFormatException e) {
-                        sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                                ChatColor.RED + "Bitte gib ein gültiges Intervall an.");
-                        return false;
-                    }
-                } else {
-                    sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                            "Aktuelles Intervall: " + plugin.getConfigManager().getPriceInterval() + " Minute(n)");
-                    return true;
+    private final Set<UUID> pendingPlayers = new java.util.HashSet<>();
+    private boolean pendingConsole;
+    private static final Map<String, Duration> PERIODS = Map.of("1h", Duration.ofHours(1), "6h", Duration.ofHours(6), "24h", Duration.ofHours(24), "7d", Duration.ofDays(7));
+    public BTCCommand(BitcoinPrice plugin) { this.plugin = plugin; }
+    private MessageFormatter messages() { return plugin.getMessages(); }
+    @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!allowed(sender)) return true;
+        try {
+            if (args.length == 0) { showPrice(sender, null); return true; }
+            String sub = args[0].toLowerCase(Locale.ROOT);
+            switch (sub) {
+                case "price" -> { exact(args, 1); showPrice(sender, null); }
+                case "help" -> { exact(args, 1); showHelp(sender); }
+                case "interval" -> interval(sender, args);
+                case "currency" -> currency(sender, args);
+                case "global" -> {
+                    exact(args, 3); admin(sender);
+                    if (!args[1].equalsIgnoreCase("currency")) throw usage("/btc global currency EUR|USD|BOTH");
+                    setGlobalCurrency(sender, args[2]);
                 }
-            } else if (args[0].equalsIgnoreCase("currency")) {
-                if (args.length > 1) {
-                    return handleCurrencyChange(sender, args[1].toUpperCase());
-                } else {
-                    sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                            "Aktuelle Währung: " + plugin.getConfigManager().getPriceCurrency());
-                    return true;
-                }
-            } else if (args[0].equalsIgnoreCase("refresh")) {
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        "Aktualisiere Bitcoin-Preis...");
-                plugin.getScheduler().broadcastBitcoinPrice();
-                return true;
-            } else if (args[0].equalsIgnoreCase("on")) {
-                return handleEnableNotifications(sender, args);
-            } else if (args[0].equalsIgnoreCase("off")) {
-                return handleDisableNotifications(sender, args);
-            }
-        }
-        
-        // Statt Hauptmenü anzeigen, den aktuellen Bitcoin-Preis abrufen
-        fetchCurrentPrice(sender);
-        return true;
-    }
-    
-    /**
-     * Aktiviert Bitcoin-Preis Benachrichtigungen
-     * @param sender Der CommandSender
-     * @param args Die Befehlsargumente
-     * @return true, wenn der Befehl erfolgreich war
-     */
-    private boolean handleEnableNotifications(CommandSender sender, String[] args) {
-        if (args.length > 1 && args[1].equalsIgnoreCase("all")) {
-            if (sender.hasPermission("bitcoinprice.admin")) {
-                broadcastsDisabled = false;
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.GREEN + "Bitcoin-Preis Benachrichtigungen wurden für alle Spieler aktiviert.");
-                return true;
-            } else {
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.RED + "Du hast keine Berechtigung, diesen Befehl auszuführen.");
-                return false;
-            }
-        } else {
-            if (sender instanceof Player) {
-                Player player = (Player) sender;
-                disabledPlayers.remove(player.getUniqueId());
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.GREEN + "Bitcoin-Preis Benachrichtigungen wurden für dich aktiviert.");
-                return true;
-            } else {
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.RED + "Dieser Befehl kann nur von Spielern ausgeführt werden.");
-                return false;
-            }
-        }
-    }
-    
-    /**
-     * Deaktiviert Bitcoin-Preis Benachrichtigungen
-     * @param sender Der CommandSender
-     * @param args Die Befehlsargumente
-     * @return true, wenn der Befehl erfolgreich war
-     */
-    private boolean handleDisableNotifications(CommandSender sender, String[] args) {
-        if (args.length > 1 && args[1].equalsIgnoreCase("all")) {
-            if (sender.hasPermission("bitcoinprice.admin")) {
-                broadcastsDisabled = true;
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.GREEN + "Bitcoin-Preis Benachrichtigungen wurden für alle Spieler deaktiviert.");
-                return true;
-            } else {
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.RED + "Du hast keine Berechtigung, diesen Befehl auszuführen.");
-                return false;
-            }
-        } else {
-            if (sender instanceof Player) {
-                Player player = (Player) sender;
-                disabledPlayers.add(player.getUniqueId());
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.GREEN + "Bitcoin-Preis Benachrichtigungen wurden für dich deaktiviert.");
-                return true;
-            } else {
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        ChatColor.RED + "Dieser Befehl kann nur von Spielern ausgeführt werden.");
-                return false;
-            }
-        }
-    }
-    
-    /**
-     * Ruft den aktuellen Bitcoin-Preis ab basierend auf der eingestellten Währung
-     * @param sender Der CommandSender
-     */
-    private void fetchCurrentPrice(CommandSender sender) {
-        String currency = plugin.getConfigManager().getPriceCurrency();
-        
-        sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                "Rufe aktuellen Bitcoin-Preis ab...");
-        
-        plugin.getApiService().fetchBitcoinPrice().thenAccept(response -> {
-            String message = null;
-            String messagePrefix = plugin.getConfigManager().getMessagePrefix();
-            String priceColor = plugin.getConfigManager().getPriceColor();
-            
-            try {
-                if (currency.equals("EUR")) {
-                    String priceEUR = plugin.getApiService().extractPrice(response, "eur");
-                    message = messagePrefix + "Bitcoin-Preis: " + priceColor + priceEUR + " €";
-                } else if (currency.equals("USD")) {
-                    String priceUSD = plugin.getApiService().extractPrice(response, "usd");
-                    message = messagePrefix + "Bitcoin-Preis: " + priceColor + priceUSD + " $";
-                } else if (currency.equals("BOTH")) {
-                    String priceEUR = plugin.getApiService().extractPrice(response, "eur");
-                    String priceUSD = plugin.getApiService().extractPrice(response, "usd");
-                    message = messagePrefix + "Bitcoin-Preis: " + priceColor + priceEUR + " € / " + priceUSD + " $";
-                }
-                
-                final String finalMessage = message;
-                if (finalMessage != null) {
-                    // Sende die Nachricht synchron zur Hauptthread
-                    plugin.getServer().getScheduler().runTask(plugin, () -> {
-                        sender.sendMessage(finalMessage);
+                case "refresh" -> {
+                    exact(args, 1); admin(sender);
+                    request(sender, true, quote -> {
+                        plugin.getScheduler().broadcastQuote(quote);
+                        messages().send(sender, "Kurs aktualisiert; globale Chatnachrichten beachten die gespeicherten Einstellungen.");
                     });
                 }
-            } catch (Exception e) {
-                // Fehlermeldung synchron zur Hauptthread senden
-                plugin.getServer().getScheduler().runTask(plugin, () -> {
-                    sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                            plugin.getConfigManager().getApiErrorMessage());
-                    plugin.getLogger().warning("Fehler beim Erstellen der Bitcoin-Preis Nachricht: " + e.getMessage());
-                });
+                case "on", "off" -> notifications(sender, args, sub.equals("on"));
+                case "settings" -> { exact(args, 1); settings(sender); }
+                case "locale" -> {
+                    exact(args, 2); Player player = player(sender);
+                    String locale = args[1].equalsIgnoreCase("DEFAULT") ? "DEFAULT" : args[1];
+                    plugin.getPreferences().setLocale(player.getUniqueId(), locale);
+                    messages().send(sender, "Sprache/Zahlenformat: " + locale);
+                }
+                case "display" -> {
+                    exact(args, 2); Player player = player(sender);
+                    DisplayMode display;
+                    try { display = DisplayMode.valueOf(args[1].toUpperCase(Locale.ROOT)); }
+                    catch (IllegalArgumentException ex) { throw usage("/btc display chat|actionbar|off"); }
+                    plugin.getPreferences().setDisplay(player.getUniqueId(), display);
+                    if (display != DisplayMode.ACTIONBAR) player.sendActionBar(net.kyori.adventure.text.Component.empty());
+                    messages().send(sender, "Anzeige: " + display.name().toLowerCase(Locale.ROOT));
+                }
+                case "alert" -> alert(sender, args);
+                case "sats" -> sats(sender, args);
+                case "board" -> board(sender, args);
+                case "history" -> history(sender, args);
+                case "portfolio" -> portfolio(sender, args);
+                default -> throw usage("Unbekannter Befehl. /btc help zeigt alle Befehle.");
             }
-        }).exceptionally(e -> {
-            // Fehlermeldung synchron zur Hauptthread senden
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
-                sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                        plugin.getConfigManager().getApiErrorMessage());
-                plugin.getLogger().warning("Fehler beim Abrufen des Bitcoin-Preises: " + e.getMessage());
-            });
-            return null;
+        } catch (IllegalArgumentException ex) { messages().error(sender, ex.getMessage()); }
+        return true;
+    }
+    private static IllegalArgumentException usage(String text) { return new IllegalArgumentException(text); }
+    private boolean allowed(CommandSender sender) {
+        if (sender.hasPermission("bitcoinprice.use")) return true;
+        messages().error(sender, "Dafür fehlt dir bitcoinprice.use."); return false;
+    }
+    private static void exact(String[] args, int size) { if (args.length != size) throw usage("Ungültige Argumente. Hilfe: /btc help"); }
+    private static Player player(CommandSender sender) {
+        if (!(sender instanceof Player player)) throw usage("Dieser Befehl benötigt einen Spieler.");
+        return player;
+    }
+    private static void admin(CommandSender sender) { if (!sender.hasPermission("bitcoinprice.admin")) throw usage("Dafür fehlt dir bitcoinprice.admin."); }
+    private static String coinCurrency(String raw) {
+        String currency = raw.toUpperCase(Locale.ROOT);
+        if (!currency.equals("EUR") && !currency.equals("USD")) throw usage("Erlaubte Währungen: EUR, USD.");
+        return currency;
+    }
+    public static BigDecimal positiveAmount(String raw) {
+        if (raw.length() > 32 || !raw.matches("[0-9]+(?:\\.[0-9]+)?")) throw usage("Bitte eine positive Zahl mit Dezimalpunkt angeben (z. B. 10.50).");
+        BigDecimal amount = new BigDecimal(raw);
+        if (amount.signum() <= 0 || amount.scale() > 8 || amount.compareTo(new BigDecimal("1000000000000")) > 0)
+            throw usage("Betrag muss positiv, höchstens 1 Billion und auf 8 Nachkommastellen begrenzt sein.");
+        return amount;
+    }
+    public void showPrice(CommandSender sender, String currencyOverride) {
+        if (!allowed(sender)) return;
+        request(sender, false, quote -> sender.sendMessage(messages().quote("price", quote,
+                currencyOverride == null ? messages().currency(sender) : currencyOverride, messages().locale(sender))));
+    }
+    /** Bound callback demand per user; all UI and balance changes stay on the main thread. */
+    private void request(CommandSender sender, boolean force, Consumer<PriceQuote> success) {
+        UUID id = sender instanceof Player player ? player.getUniqueId() : null;
+        if (id == null ? pendingConsole : !pendingPlayers.add(id)) {
+            messages().send(sender, "Eine Kursabfrage läuft bereits."); return;
+        }
+        if (id == null) pendingConsole = true;
+        CompletableFuture<PriceQuote> future = force ? plugin.getApiService().forceRefresh() : plugin.getApiService().fetchBitcoinPrice();
+        future.whenComplete((quote, error) -> plugin.runSync(() -> {
+            if (id == null) pendingConsole = false; else pendingPlayers.remove(id);
+            if (sender instanceof Player player && !player.isOnline()) return;
+            if (error != null) { messages().apiError(sender); return; }
+            PriceQuote currentQuote = new PriceQuote(quote.snapshot(), quote.stale()
+                    || !MessageFormatter.isFresh(quote.snapshot(), plugin.getConfigManager().getApiSettings(), Instant.now()));
+            try { success.accept(currentQuote); }
+            catch (IllegalArgumentException ex) { messages().error(sender, ex.getMessage()); }
+        }));
+    }
+    private void interval(CommandSender sender, String[] args) {
+        if (args.length == 1) { messages().send(sender, "Chat-Intervall: " + plugin.getConfigManager().getPriceInterval() + " Minuten"); return; }
+        exact(args, 2); admin(sender);
+        int value;
+        try { value = Integer.parseInt(args[1]); } catch (NumberFormatException ex) { throw usage("/btc interval 1|5|10|30|60"); }
+        if (!plugin.getConfigManager().setPriceInterval(value)) throw usage("Erlaubte Intervalle: 1, 5, 10, 30, 60 Minuten.");
+        plugin.getScheduler().updateSchedulerInterval(value);
+        messages().send(sender, "Chat-Intervall: " + value + " Minuten");
+    }
+    private void currency(CommandSender sender, String[] args) {
+        if (args.length == 1) { messages().send(sender, "Währung: " + messages().currency(sender)); return; }
+        exact(args, 2);
+        if (!(sender instanceof Player player)) { admin(sender); setGlobalCurrency(sender, args[1]); return; }
+        String value = args[1].toUpperCase(Locale.ROOT);
+        plugin.getPreferences().setCurrency(player.getUniqueId(), value);
+        messages().send(sender, "Deine Währung: " + value);
+    }
+    private void setGlobalCurrency(CommandSender sender, String raw) {
+        String value = raw.toUpperCase(Locale.ROOT);
+        if (!plugin.getConfigManager().setPriceCurrency(value)) throw usage("Erlaubte globale Währungen: EUR, USD, BOTH.");
+        messages().send(sender, "Globale Währung: " + value);
+    }
+    private void notifications(CommandSender sender, String[] args, boolean on) {
+        if (args.length == 2 && args[1].equalsIgnoreCase("all")) {
+            admin(sender); plugin.getConfigManager().setBroadcastsEnabled(on);
+            messages().send(sender, "Globale Chatnachrichten: " + (on ? "an" : "aus"));
+        } else {
+            exact(args, 1); Player player = player(sender);
+            plugin.getPreferences().setNotifications(player.getUniqueId(), on);
+            if (!on) player.sendActionBar(net.kyori.adventure.text.Component.empty());
+            messages().send(sender, "Deine Kursnachrichten: " + (on ? "an" : "aus") + ". Preisalarme verwaltest du separat mit /btc alert.");
+        }
+    }
+    private void settings(CommandSender sender) {
+        Preferences preferences = plugin.getPreferences().get(player(sender).getUniqueId());
+        messages().send(sender, "Kursnachrichten: " + preferences.notifications() + " | Anzeige: " + preferences.display()
+                + " | Währung: " + preferences.currency() + " | Sprache: " + preferences.locale());
+    }
+    private void alert(CommandSender sender, String[] args) {
+        Player player = player(sender);
+        if (args.length == 2 && args[1].equalsIgnoreCase("list")) {
+            var alerts = plugin.getPreferences().listAlerts(player.getUniqueId());
+            if (alerts.isEmpty()) messages().send(sender, "Keine Preisalarme. /btc alert above|below <Betrag> EUR|USD");
+            alerts.forEach(alert -> messages().send(sender, alert.id().toString().substring(0, 8) + " | " + alert.direction()
+                    + " " + MessageFormatter.number(alert.threshold(), messages().locale(sender), 2) + " " + alert.currency()));
+        } else if (args.length == 3 && args[1].equalsIgnoreCase("remove")) {
+            if (!plugin.getPreferences().removeAlert(player.getUniqueId(), args[2])) throw usage("Alarm nicht gefunden oder ID nicht eindeutig.");
+            messages().send(sender, "Preisalarm entfernt.");
+        } else {
+            exact(args, 4);
+            AlertDirection direction;
+            try { direction = AlertDirection.valueOf(args[1].toUpperCase(Locale.ROOT)); }
+            catch (IllegalArgumentException ex) { throw usage("/btc alert above|below <Betrag> EUR|USD"); }
+            var alert = plugin.getPreferences().addAlert(player.getUniqueId(), direction, positiveAmount(args[2]), coinCurrency(args[3]));
+            messages().send(sender, "Alarm " + alert.id().toString().substring(0, 8) + " gespeichert. Meldet die nächste Schwellenüberschreitung, sobald ein Ausgangskurs bekannt ist.");
+        }
+    }
+    public static BigDecimal toSats(BigDecimal fiatAmount, BigDecimal price) {
+        return fiatAmount.multiply(BigDecimal.valueOf(100_000_000L)).divide(price, 0, RoundingMode.DOWN);
+    }
+    private void sats(CommandSender sender, String[] args) {
+        exact(args, 3); BigDecimal amount = positiveAmount(args[1]); String currency = coinCurrency(args[2]);
+        request(sender, false, quote -> messages().send(sender, MessageFormatter.number(amount, messages().locale(sender), 2) + " " + currency
+                + " ≈ " + MessageFormatter.number(toSats(amount, quote.snapshot().price(currency)), messages().locale(sender), 0)
+                + " sats" + (quote.stale() ? " &c(veralteter Kurs)" : "") + ". 1 BTC = 100.000.000 sats."));
+    }
+    private void board(CommandSender sender, String[] args) {
+        if (args.length == 2 && args[1].equalsIgnoreCase("list")) {
+            messages().send(sender, "Kurstafeln: " + String.join(", ", plugin.getBoards().names())); return;
+        }
+        admin(sender);
+        if ((args.length == 2 || args.length == 3) && args[1].equalsIgnoreCase("create")) {
+            plugin.getBoards().create(player(sender), args.length == 3 ? args[2] : "spawn");
+            messages().send(sender, "Kurstafel an deiner Position erstellt.");
+        } else if (args.length == 3 && args[1].equalsIgnoreCase("remove")) {
+            if (!plugin.getBoards().remove(args[2])) throw usage("Kurstafel nicht gefunden.");
+            messages().send(sender, "Kurstafel entfernt (entladene Chunks werden beim Laden bereinigt).");
+        } else throw usage("/btc board create [Name] | remove <Name> | list");
+    }
+    private void history(CommandSender sender, String[] args) {
+        if (args.length > 2) throw usage("/btc history [1h|6h|24h|7d]");
+        Duration period = PERIODS.get(args.length == 1 ? "24h" : args[1].toLowerCase(Locale.ROOT));
+        if (period == null) throw usage("/btc history [1h|6h|24h|7d]");
+        String selected = messages().currency(sender);
+        List<PriceSnapshot> samples = plugin.getHistory().list(period);
+        if (samples.isEmpty()) { messages().send(sender, "Für diesen Zeitraum sind noch keine Kursdaten gespeichert."); return; }
+        List<String> currencies = selected.equals("BOTH") ? List.of("EUR", "USD") : List.of(selected);
+        for (String currency : currencies) {
+            BigDecimal low = samples.stream().map(s -> s.price(currency)).min(BigDecimal::compareTo).orElseThrow();
+            BigDecimal high = samples.stream().map(s -> s.price(currency)).max(BigDecimal::compareTo).orElseThrow();
+            messages().send(sender, "Verlauf " + currency + " (" + period.toHours() + "h, " + samples.size() + " Messungen): "
+                    + MessageFormatter.number(low, messages().locale(sender), 2) + "–" + MessageFormatter.number(high, messages().locale(sender), 2));
+            messages().send(sender, MessageFormatter.chart(samples, currency, period, Instant.now()));
+        }
+        messages().send(sender, "Links: früher; rechts: jetzt. Zeichen steigen von _ bis #; Leerzeichen = keine Messung.");
+    }
+    private void portfolio(CommandSender sender, String[] args) {
+        Player player = player(sender); UUID id = player.getUniqueId();
+        if (args.length == 2 && args[1].equalsIgnoreCase("start")) {
+            showBalance(sender, plugin.getPreferences().startPortfolio(id)); return;
+        }
+        if (args.length == 1) {
+            showBalance(sender, plugin.getPreferences().getPortfolio(id).orElseThrow(() -> usage("Virtuelles Lernportfolio: /btc portfolio start (10.000 virtuelle EUR; kein echtes Geld)."))); return;
+        }
+        exact(args, 3); String action = args[1].toLowerCase(Locale.ROOT);
+        if (!action.equals("buy") && !action.equals("sell")) throw usage("/btc portfolio start | buy <EUR-Betrag> | sell <BTC-Betrag>");
+        BigDecimal amount = positiveAmount(args[2]);
+        if (plugin.getPreferences().getPortfolio(id).isEmpty()) throw usage("Zuerst /btc portfolio start. Es handelt sich ausschließlich um virtuelles Geld.");
+        request(sender, false, quote -> {
+            if (quote.stale()) throw usage("Handel benötigt einen aktuellen Kurs. Bitte später erneut versuchen.");
+            PortfolioBalance balance = action.equals("buy") ? plugin.getPreferences().buy(id, amount, quote.snapshot().eur())
+                    : plugin.getPreferences().sell(id, amount, quote.snapshot().eur());
+            showBalance(sender, balance);
         });
     }
-    
-    /**
-     * Sendet die Hilfsnachricht
-     * @param sender Der CommandSender
-     */
-    private void sendHelpMessage(CommandSender sender) {
-        sender.sendMessage(ChatColor.GOLD + "=== BitcoinPrice Plugin ===");
-        sender.sendMessage(ChatColor.YELLOW + "Aktuelles Intervall: " + 
-                ChatColor.WHITE + plugin.getConfigManager().getPriceInterval() + " Minute(n)");
-        sender.sendMessage(ChatColor.YELLOW + "Aktuelle Währung: " + 
-                ChatColor.WHITE + plugin.getConfigManager().getPriceCurrency());
-        sender.sendMessage(ChatColor.YELLOW + "Befehle:");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc" + 
-                ChatColor.GRAY + " - Zeigt den aktuellen Bitcoin-Preis an");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc help" + 
-                ChatColor.GRAY + " - Zeigt diese Hilfe an");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc interval <1|5|10|30|60>" + 
-                ChatColor.GRAY + " - Ändert das Update-Intervall");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc currency <EUR|USD|BOTH>" + 
-                ChatColor.GRAY + " - Ändert die Währung");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc refresh" + 
-                ChatColor.GRAY + " - Aktualisiert den Bitcoin-Preis sofort");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc on" + 
-                ChatColor.GRAY + " - Aktiviert Bitcoin-Preis Benachrichtigungen für dich");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc off" + 
-                ChatColor.GRAY + " - Deaktiviert Bitcoin-Preis Benachrichtigungen für dich");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc on all" + 
-                ChatColor.GRAY + " - Aktiviert Bitcoin-Preis Benachrichtigungen für alle Spieler");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btc off all" + 
-                ChatColor.GRAY + " - Deaktiviert Bitcoin-Preis Benachrichtigungen für alle Spieler");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btceur" + 
-                ChatColor.GRAY + " - Zeigt den Bitcoin-Preis in Euro an");
-        sender.sendMessage(ChatColor.YELLOW + " - " + ChatColor.WHITE + "/btcusd" + 
-                ChatColor.GRAY + " - Zeigt den Bitcoin-Preis in US-Dollar an");
+    private void showBalance(CommandSender sender, PortfolioBalance balance) {
+        messages().send(sender, "Virtuelles Lernportfolio (kein echtes Geld): " + MessageFormatter.number(balance.cashEur(), messages().locale(sender), 2)
+                + " EUR | " + MessageFormatter.number(balance.bitcoin(), messages().locale(sender), 8) + " BTC");
     }
-    
-    /**
-     * Verarbeitet die Änderung des Intervalls
-     * @param sender Der CommandSender
-     * @param interval Das neue Intervall in Minuten
-     * @return true, wenn das Intervall gültig ist, sonst false
-     */
-    private boolean handleIntervalChange(CommandSender sender, int interval) {
-        if (plugin.getConfigManager().setPriceInterval(interval)) {
-            plugin.getScheduler().updateSchedulerInterval(interval);
-            sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                    ChatColor.GREEN + "Intervall wurde auf " + interval + " Minute(n) geändert.");
-            return true;
-        } else {
-            sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                    ChatColor.RED + "Ungültiges Intervall. Erlaubte Werte: 1, 5, 10, 30, 60");
-            return false;
+    public void showHelp(CommandSender sender) {
+        if (!allowed(sender)) return;
+        messages().send(sender, "&6BitcoinPrice – Befehle");
+        for (String line : List.of("/btc [price] | /btceur | /btcusd – aktueller Kurs", "/btc currency EUR|USD|BOTH|DEFAULT – persönliche Währung",
+                "/btc on|off – persönliche Kursnachrichten", "/btc display chat|actionbar|off – Anzeige", "/btc locale de-DE|en-US|DEFAULT | settings",
+                "/btc alert above|below <Betrag> EUR|USD", "/btc alert list | remove <ID> – explizite Preisalarme", "/btc sats <Betrag> EUR|USD – Umrechnung in Satoshi",
+                "/btc history [1h|6h|24h|7d] – gespeicherte Messungen", "/btc board list – Kurstafeln", "/btc portfolio start | buy <EUR> | sell <BTC>",
+                "Portfolio: freiwilliges Lernspiel mit virtuellem Geld; keine echten Käufe.")) messages().send(sender, line);
+        if (sender.hasPermission("bitcoinprice.admin")) {
+            messages().send(sender, "Admin: /btc interval 1|5|10|30|60 | global currency EUR|USD|BOTH | refresh | on|off all");
+            messages().send(sender, "Admin: /btc board create [Name] | remove <Name>");
         }
     }
-    
-    /**
-     * Verarbeitet die Änderung der Währung
-     * @param sender Der CommandSender
-     * @param currency Die neue Währung (EUR, USD oder BOTH)
-     * @return true, wenn die Währung gültig ist, sonst false
-     */
-    private boolean handleCurrencyChange(CommandSender sender, String currency) {
-        if (plugin.getConfigManager().setPriceCurrency(currency)) {
-            sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                    ChatColor.GREEN + "Währung wurde auf " + currency + " geändert.");
-            return true;
-        } else {
-            sender.sendMessage(plugin.getConfigManager().getMessagePrefix() + 
-                    ChatColor.RED + "Ungültige Währung. Erlaubte Werte: EUR, USD, BOTH");
-            return false;
-        }
+    @Override public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!sender.hasPermission("bitcoinprice.use")) return List.of();
+        List<String> values = new ArrayList<>(); boolean admin = sender.hasPermission("bitcoinprice.admin");
+        String sub = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
+        if (args.length == 1) {
+            values.addAll(List.of("price", "help", "currency", "on", "off", "settings", "locale", "display", "alert", "sats", "history", "portfolio", "board"));
+            if (admin) values.addAll(List.of("interval", "global", "refresh"));
+        } else if (args.length == 2) {
+            switch (sub) {
+                case "currency" -> values.addAll(sender instanceof Player ? List.of("EUR", "USD", "BOTH", "DEFAULT") : admin ? List.of("EUR", "USD", "BOTH") : List.of());
+                case "interval" -> { if (admin) values.addAll(List.of("1", "5", "10", "30", "60")); }
+                case "global" -> { if (admin) values.add("currency"); }
+                case "on", "off" -> { if (admin) values.add("all"); }
+                case "locale" -> values.addAll(List.of("de-DE", "en-US", "DEFAULT"));
+                case "display" -> values.addAll(List.of("chat", "actionbar", "off"));
+                case "alert" -> values.addAll(List.of("above", "below", "list", "remove"));
+                case "history" -> values.addAll(List.of("1h", "6h", "24h", "7d"));
+                case "portfolio" -> values.addAll(List.of("start", "buy", "sell"));
+                case "board" -> { values.add("list"); if (admin) values.addAll(List.of("create", "remove")); }
+                default -> { }
+            }
+        } else if (args.length == 3) {
+            if (sub.equals("global") && admin && args[1].equalsIgnoreCase("currency")) values.addAll(List.of("EUR", "USD", "BOTH"));
+            if (sub.equals("sats")) values.addAll(List.of("EUR", "USD"));
+            if (sub.equals("board") && admin && args[1].equalsIgnoreCase("remove")) values.addAll(plugin.getBoards().names());
+            if (sub.equals("alert") && args[1].equalsIgnoreCase("remove") && sender instanceof Player player)
+                plugin.getPreferences().listAlerts(player.getUniqueId()).forEach(alert -> values.add(alert.id().toString().substring(0, 8)));
+        } else if (args.length == 4 && sub.equals("alert") && (args[1].equalsIgnoreCase("above") || args[1].equalsIgnoreCase("below"))) values.addAll(List.of("EUR", "USD"));
+        String prefix = args.length == 0 ? "" : args[args.length - 1].toLowerCase(Locale.ROOT);
+        return values.stream().filter(value -> value.toLowerCase(Locale.ROOT).startsWith(prefix)).toList();
     }
-    
-    /**
-     * Prüft, ob ein Spieler Bitcoin-Preis Benachrichtigungen erhalten möchte
-     * @param player Der Spieler
-     * @return true, wenn der Spieler Benachrichtigungen erhalten möchte, sonst false
-     */
-    public static boolean shouldReceiveMessages(Player player) {
-        return !disabledPlayers.contains(player.getUniqueId()) && !broadcastsDisabled;
-    }
-} 
+}

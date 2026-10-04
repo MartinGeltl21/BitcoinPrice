@@ -70,4 +70,4 @@ Wir verwenden [Semantic Versioning](https://semver.org/) für die Versionierung 
 - [Paper API Dokumentation](https://papermc.io/javadocs/paper/latest/)
 - [Java-Coding-Richtlinien](https://google.github.io/styleguide/javaguide.html)
 
-Vielen Dank für deinen Beitrag! 
+Vielen Dank für deinen Beitrag!
