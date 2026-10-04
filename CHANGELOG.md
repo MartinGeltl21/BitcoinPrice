@@ -5,6 +5,14 @@ Alle wichtigen Änderungen am BitcoinPrice-Plugin werden in dieser Datei dokumen
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-04
+
+- Paper 26.2 (API-Build 123) und Java 25 als Build- und Laufzeitbasis.
+- Admin-Berechtigung mit OP-Standard in plugin.yml registriert; ungültigen mehrteiligen Alias entfernt.
+- HTTP-Verbindungen auch bei Fehlern schließen, UTF-8-Antworten und dynamische Plugin-Version im User-Agent.
+- GitHub-Actions-Build mit fertiger JAR und VPS-/Docker-Compose-/Coolify-Anleitung.
+- Veraltete Build-Dateien aus Git entfernt und target/ ignoriert.
+
 ## [1.1.0] - 2025-05-04
 
 ### Hinzugefügt
@@ -33,4 +41,4 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   - Unterstützung für EUR, USD und beide Währungen
   - Basis-Befehle: `/btc`, `/btc help`, `/btc interval`, `/btc currency`, `/btc refresh`, `/btceur`, `/btcusd`
 - Konfigurationssystem mit config.yml
-- Verbindung zur CoinGecko API für Preisinformationen 
+- Verbindung zur CoinGecko API für Preisinformationen

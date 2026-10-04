@@ -14,15 +14,19 @@ Ein Minecraft-Plugin für Paper-Server, das den aktuellen Bitcoin-Kurs über die
 
 ## Anforderungen
 
-- Minecraft 1.21.11
+- Minecraft 26.2
 - Paper Server oder einen kompatiblen Fork (Purpur, etc.)
-- Java 17 oder höher
+- Java 25 oder höher
 
 ## Installation
 
 1. Lade die neueste Version des Plugins aus dem [Releases](https://github.com/MartinGeltl21/BitcoinPrice/releases)-Bereich herunter.
 2. Kopiere die JAR-Datei in den `plugins`-Ordner deines Minecraft-Servers.
-3. Starte den Server neu oder lade das Plugin mit einem Plugin-Manager.
+3. Starte den Server vollständig neu.
+
+Für einen bestehenden VPS mit Docker Compose oder Coolify: [Installationsanleitung](docs/docker-compose.md).
+
+Die aktuelle JAR ist nach einem erfolgreichen Build unter **GitHub Actions → Build → Artifacts** verfügbar. Das ZIP vor der Installation entpacken.
 
 ## Konfiguration
 
@@ -82,7 +86,7 @@ messages:
 
 Wenn du Fehler wie "Fehler beim Abrufen des Bitcoin-Preises" erhältst:
 1. Überprüfe deine Internetverbindung
-2. Die CoinGecko API hat ein Limit von etwa 30 Anfragen pro Minute für kostenlose Nutzung
+2. Bei HTTP 429 greift die CoinGecko-Ratenbegrenzung; warte und reduziere die Anzahl der Anfragen.
 3. Bei anhaltenden Problemen erhöhe den `timeout`-Wert in der Konfiguration
 
 ## Geplante Funktionen
@@ -96,13 +100,13 @@ Wenn du Fehler wie "Fehler beim Abrufen des Bitcoin-Preises" erhältst:
 
 ### Voraussetzungen
 
-- Java 17 JDK oder höher
+- Java 25 JDK
 - Maven
 
 ### Kompilieren
 
 ```bash
-mvn clean package
+mvn clean verify
 ```
 
 Die kompilierte JAR-Datei findest du dann im `target`-Ordner.
@@ -128,4 +132,4 @@ Beiträge sind immer willkommen! Bitte folge diesen Schritten:
 ## Danksagungen
 
 - [CoinGecko](https://www.coingecko.com/) für die öffentliche Kryptowährung-API
-- Alle Mitwirkenden und Tester 
+- Alle Mitwirkenden und Tester
