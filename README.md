@@ -1,135 +1,158 @@
-# BitcoinPrice Plugin
+# BitcoinPrice
 
-Ein Minecraft-Plugin für Paper-Server, das den aktuellen Bitcoin-Kurs über die CoinGecko API abruft und im Spiel anzeigt.
+![BitcoinPrice — Bitcoin-Kurse direkt im Spiel. Blocklandschaft, Münze und stilisierte Kurstafel.](docs/assets/hero.svg)
 
-## Funktionen
+*Eigene Vektorillustration; kein Spiel-Screenshot und keine realen Kursdaten.*
 
-- Automatisches Abrufen und Anzeigen des Bitcoin-Preises in konfigurierbaren Intervallen
-- Unterstützung für Euro (EUR) und US-Dollar (USD)
-- Farbige Anzeige des Bitcoin-Preises im Spiel-Chat
-- Einfache Einstellung des Aktualisierungsintervalls und der Währung über In-Game-Befehle
-- Manuelles Abrufen des aktuellen Bitcoin-Preises
-- Individuelle Kontrolle: Spieler können Bitcoin-Preis-Nachrichten für sich selbst aktivieren oder deaktivieren
-- Globale Steuerung: Administratoren können die Benachrichtigungen für alle Spieler ein- oder ausschalten
+![Paper 26.2 · Java 25 · Version 2.1.1 · MIT-Lizenz](docs/assets/badges.svg)
 
-## Anforderungen
+Bitcoin-Kurse auf deinem Minecraft-Server: im Chat, in der Actionbar oder auf einer Kurstafel am Spawn. Dazu persönliche Währungen und Preisalarme — mit einem gemeinsamen Cache und ohne zusätzliche Datenbank.
 
-- Minecraft 26.2
-- Paper Server oder einen kompatiblen Fork (Purpur, etc.)
-- Java 25 oder höher
+[Features](#features) · [Schnellstart](#schnellstart) · [Spielerbefehle](#befehle-für-spieler) · [Adminbefehle](#befehle-für-administratoren) · [Konfiguration](#konfiguration) · [Screenshots](#screenshots)
 
-## Installation
+## Features
 
-1. Lade die neueste Version des Plugins aus dem [Releases](https://github.com/MartinGeltl21/BitcoinPrice/releases)-Bereich herunter.
-2. Kopiere die JAR-Datei in den `plugins`-Ordner deines Minecraft-Servers.
-3. Starte den Server vollständig neu.
+| Funktion | Im Spiel |
+| --- | --- |
+| **Kurse mit Kontext** | Preis, Tagesänderung und getrenntes Abruf- und Datenalter |
+| **Deine Anzeige** | Chat, Actionbar oder aus; persönliche Auswahl aus neun Währungen |
+| **Kurstafeln** | Benannte TextDisplays, die Neustarts überstehen |
+| **Persönliche Alarme** | Benachrichtigung bei einer gewählten Grenzüberschreitung |
+| **Kursverlauf und Satoshis** | Lokale Kurshistorie und direkte Umrechnung |
+| **Virtuelles Lernportfolio** | Freiwillige BTC-Simulation mit Spielgeld |
 
-Für einen bestehenden VPS mit Docker Compose oder Coolify: [Installationsanleitung](docs/docker-compose.md).
+OPs können Einstellungen einzelner Spieler verwalten. Ohne Empfänger oder geladene Kurstafel ruhen die Hintergrundabfragen; API-Limits und veraltete Daten werden berücksichtigt.
 
-Die aktuelle JAR ist nach einem erfolgreichen Build unter **GitHub Actions → Build → Artifacts** verfügbar. Das ZIP vor der Installation entpacken.
+## Schnellstart
+
+**Voraussetzung:** Paper 26.2 und Java 25. Minecraft-Clients benötigen keine zusätzliche Mod.
+
+### Installation und Update
+
+1. Die JAR aus dem Build-Artefakt dieses Branches herunterladen oder `mvn clean verify` mit JDK 25 ausführen.
+2. Server stoppen und bestehende Plugin-JAR und den Ordner `plugins/BitcoinPrice` sichern.
+3. Genau eine JAR installieren: `BitcoinPrice-2.1.1.jar`. Die Datei `original-*.jar` nicht verwenden.
+4. Server vollständig starten. Bestehende `config.yml` bleibt lesbar; fehlende Einstellungen erhalten Standardwerte.
+
+Die Minecraft-Welt und das bestehende `/data`-Volume bleiben erhalten. Eine Anleitung für Docker/Coolify steht in [docs/docker-compose.md](docs/docker-compose.md). Kein `/reload` oder Hotloader.
+
+### Im Spiel loslegen
+
+```text
+/btc
+/btc currency EUR
+/btc display actionbar
+/btc on
+```
+
+Der erste Befehl zeigt den Kurs. Die weiteren wählen die eigene Währung und aktivieren die Actionbar. Für regelmäßige Chat-Nachrichten `/btc display chat` verwenden. Als OP kannst du mit `/btc board create spawn` eine Kurstafel am eigenen Standort erstellen.
+
+**Änderung in 2.0:** `/btc currency` ändert für Spieler die persönliche Währung. Die globale Einstellung heißt jetzt `/btc global currency`. Globale Änderungen und Refresh benötigen `bitcoinprice.admin` (standardmäßig OP). Ein Intervallwechsel löst keine Sofortnachricht mehr aus.
+
+**Neu in 2.1:** Weitere Währungen und OP-Steuerung für einzelne Spieler. OPs können alle Funktionen auch bei abweichenden Permission-Zuweisungen verwenden. Der Java-Namespace und die veröffentlichten Projektdateien verwenden neutrale Namen; bestehende Plugin-Daten bleiben kompatibel.
+
+**Neu in 2.1.1:** Die Hilfe ist in übersichtliche Seiten aufgeteilt: `/btc help 1`, `/btc help 2` oder `/btchelp 1`. Die Navigation zeigt, welche Seiten für die eigenen Rechte verfügbar sind.
+
+## Screenshots
+
+Für die Bildgalerie sind echte Spielaufnahmen vorgesehen: **Kurstafel**, **Actionbar** und **Chat-Kurs**, optional eine Seite der Hilfe. Die [Screenshot-Anleitung](docs/screenshots.md) enthält die passenden Befehle und Bildausschnitte. Sobald echte Aufnahmen vorliegen, ergänzen sie die Illustration oben.
+
+## Befehle für Spieler
+
+| Befehl | Funktion |
+| --- | --- |
+| `/btc`, `/btc price` | Kurs, 24-Stunden-Veränderung und Datenalter |
+| `/btceur`, `/btcusd` | Kurs in einer bestimmten Währung |
+| `/btc help [Seite]`, `/btchelp [Seite]` | Gemeinsame Hilfe mit Seitennavigation; ohne Zahl beginnt sie auf Seite 1 |
+| `/btc settings` | Persönliche Einstellungen |
+| `/btc currency` | Wirksame persönliche Währung ansehen |
+| `/btc currency <CODE>` | Persönliche Währung; DEFAULT übernimmt die globale Auswahl, BOTH zeigt EUR und USD |
+| `/btc locale <Sprachcode>\|DEFAULT` | Persönliches Zahlenformat, z. B. de-DE oder en-US |
+| `/btc display chat\|actionbar\|off` | Persönliche Anzeigeform |
+| `/btc on`, `/btc off` | Eigene regelmäßige Intervall-Anzeige aktivieren/deaktivieren |
+| `/btc interval` | Globales Chat-Intervall ansehen |
+| `/btc sats 10 EUR` | Gegenwert von 10 EUR in Satoshis, anhand des angezeigten Kurses |
+| `/btc alert above 100000 EUR` | Alarm beim Überschreiten einer Grenze |
+| `/btc alert below 80000 EUR` | Alarm beim Unterschreiten einer Grenze |
+| `/btc alert list` | Eigene Alarme mit IDs ansehen |
+| `/btc alert remove <ID>` | Eigenen Alarm entfernen; eindeutige kurze ID genügt |
+| `/btc history 1h\|6h\|24h\|7d` | Gesammelten Kursverlauf als kompaktes Textdiagramm ansehen |
+| `/btc portfolio` | Eigenes virtuelles Portfolio ansehen |
+| `/btc portfolio start` | Simulation ausdrücklich starten, einmalig 10.000 virtuelle EUR |
+| `/btc portfolio buy 100` | Für 100 virtuelle EUR BTC kaufen |
+| `/btc portfolio sell 0.001` | 0,001 virtuelle BTC verkaufen |
+
+Währungscodes: `EUR`, `USD`, `GBP`, `CHF`, `CAD`, `AUD`, `JPY`, `CNY`, `INR`. `BOTH` zeigt EUR und USD; `DEFAULT` übernimmt die globale Auswahl. Preisalarme und `sats` akzeptieren jeweils einen einzelnen Währungscode. Beispiel: `/btc currency CHF`, `/btc sats 10 GBP` oder `/btc alert above 90000 CAD`. Das virtuelle Portfolio bleibt in EUR geführt.
+
+Das Portfolio verwendet ausschließlich **Spielgeld**. Es verbindet keine Wallet, führt keine echten Transaktionen aus und setzt vorhandenes Guthaben bei erneutem `start` nicht zurück. Käufe werden auf ganze Satoshis, Verkäufe auf Euro-Cents abgerundet. Mit veralteten oder zeitlich nicht überprüfbaren Kursen wird nicht gehandelt.
+
+Preisalarm und Actionbar sind optional. Ein Alarm beginnt mit einer Baseline beim ersten frischen Kurs und löst erst bei einer späteren Grenzüberschreitung aus. Wiederholungen werden durch Hysterese und eine Wartezeit begrenzt; maximal zehn Alarme pro Spieler. Bei minutenweisen Abfragen können kurze Kursbewegungen zwischen zwei Abfragen unbemerkt bleiben. Persönliches `/btc off` deaktiviert Intervall-Benachrichtigungen. Es ändert keine Währung oder vorhandenen Alarme; ausdrücklich angelegte Alarme werden mit `alert remove` entfernt.
+
+## Befehle für Administratoren
+
+| Befehl | Funktion |
+| --- | --- |
+| `/btc interval 1\|5\|10\|30\|60` | Globales Chat-Intervall ändern |
+| `/btc global currency <CODE>\|BOTH` | Globale Standardwährung ändern |
+| `/btc refresh` | Kurs aktualisieren und an empfangsberechtigte Spieler senden |
+| `/btc on all`, `/btc off all` | Globale regelmäßige Chat-Nachrichten ein-/ausschalten |
+| `/btc board create <name>` | Benannte Kurstafel als TextDisplay am eigenen Standort erstellen |
+| `/btc board list` | Kurstafeln ansehen |
+| `/btc board remove <name>` | Eine eigene Plugin-Kurstafel entfernen |
+| `/btc player <Name\|UUID> on` | Intervall-Benachrichtigungen eines Spielers aktivieren |
+| `/btc player <Name\|UUID> off` | Intervall-Benachrichtigungen eines Spielers deaktivieren |
+| `/btc player <Name\|UUID> currency <CODE>\|BOTH\|DEFAULT` | Persönliche Währung eines Spielers ändern |
+| `/btc player <Name\|UUID> settings` | Gespeicherte Einstellungen eines Spielers ansehen |
+| `/btc player <Name\|UUID> display chat\|actionbar\|off` | Anzeigeform eines Spielers wählen |
+| `/btc player <Name\|UUID> locale <Sprachcode>\|DEFAULT` | Zahlenformat eines Spielers wählen |
+
+Globale Chat-Deaktivierung lässt persönliche, ausdrücklich aktivierte Actionbars und Alarme bestehen. Individuelle Präferenzen werden dadurch nicht überschrieben. Kurstafeln laden keine Chunks dauerhaft nach und werden nach einem Neustart wiedererkannt. Es werden ausschließlich vom Plugin markierte Anzeigen verwaltet.
+
+Die Spielersteuerung steht OPs, der Konsole und Benutzern mit `bitcoinprice.admin` zur Verfügung. Für offline gespeicherte Spieler kann die UUID verwendet werden. Namen werden nur gegen tatsächlich bekannte Spieler aufgelöst; unbekannte Namen erzeugen kein neues Profil. Die Änderungen werden gespeichert und greifen für laufende Intervall-Nachrichten ohne Neustart. `on`/`off` ändern nur die Benachrichtigungseinstellung; Alarme, Währung und Guthaben bleiben erhalten.
 
 ## Konfiguration
 
-Die Konfigurationsdatei (`config.yml`) wird automatisch beim ersten Start des Plugins erstellt und enthält folgende Einstellungen:
+Die kommentierte [config.yml](src/main/resources/config.yml) enthält alle Optionen. Wesentliche Standardwerte:
 
-```yaml
-# Das Intervall, in dem der Bitcoin-Preis automatisch im Chat angezeigt wird
-# Mögliche Werte: 1, 5, 10, 30, 60 (in Minuten)
-price-interval: 10
+- Chat-Intervall 10 Minuten, Standardwährung EUR, Zahlenformat `de-DE`.
+- Gemeinsamer Cache 60 Sekunden. Gleichzeitig laufende Anfragen werden zusammengefasst.
+- API-Timeout 10 Sekunden; globaler Refresh hat 30 Sekunden Wartezeit.
+- Bei API-Fehlern höchstens fünf Minuten alte gespeicherte Daten, ausdrücklich als veraltet gekennzeichnet. Alarme und virtuelle Trades verwenden solche Daten nicht.
+- Anbieterzeitstempel werden getrennt vom lokalen Abrufzeitpunkt angezeigt. Fehlende Zeitstempel gelten als unbekannt.
+- Überwachung aktiver Anzeigen/Alarme/Kurstafeln alle 60 Sekunden. Die Actionbar wird alle fünf Sekunden aus dem Cache neu angezeigt und erzeugt dabei keine zusätzlichen HTTP-Anfragen.
+- Lokale Kursgeschichte höchstens sieben Tage. Gesammelt wird ab Installation während tatsächlicher Abfragen; keine rückwirkende historische Datenabfrage.
 
-# Die Währung, in der der Bitcoin-Preis angezeigt wird
-# Mögliche Werte: EUR, USD, BOTH
-price-currency: EUR
+Bei leerem Server ohne geladene Kurstafeln erfolgen keine Hintergrundabfragen. Ein gespeicherter Alarm eines offline befindlichen Spielers hält die Abfrage nicht aktiv.
 
-# Einstellungen für die CoinGecko API
-api:
-  # Die URL der CoinGecko API
-  url: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur,usd&precision=2"
-  # Timeout in Millisekunden
-  timeout: 10000
+Optional kann ein CoinGecko-Demo-Key mit `api.demo-api-key` oder über `COINGECKO_DEMO_API_KEY` gesetzt werden. Er wird als Header versendet und nicht protokolliert. Keine Zugangsdaten im Repository speichern. HTTP 429 führt zu einer Wartephase; `Retry-After` wird berücksichtigt. Kein sofortiger Wiederholungsversuch durch Befehle.
 
-# Nachrichteneinstellungen
-messages:
-  # Präfix vor jeder Nachricht
-  prefix: "&6[BitcoinPrice] &r"
-  # Farbe des Bitcoin-Preises
-  price-color: "&6"
-  # Meldung bei API-Fehler
-  api-error: "&cFehler beim Abrufen des Bitcoin-Preises. Bitte versuche es später erneut."
+Preis-, Actionbar-, Alarm- und Board-Nachrichten sind in `messages` mit `&`-Farben konfigurierbar. Platzhalter: `{price}`, `{currency}`, `{eur}`, `{usd}`, `{change}`, `{age}`, `{provider_age}`, `{status}`; bei Alarmen zusätzlich `{threshold}` und `{direction}`. Für die gewählte Währung auf Kurstafeln `{price} {currency}` verwenden. Alte Vorlagen mit `{eur}` und `{usd}` bleiben nutzbar und zeigen ausdrücklich diese Währungen. Das Plugin nutzt Adventure-Komponenten.
+
+## Gespeicherte Daten
+
+Im Ordner `plugins/BitcoinPrice`:
+
+- `config.yml`: globale Einstellungen.
+- `players.json`: UUID-bezogene Präferenzen, Alarme und virtuelles Portfolio.
+- `history.json`: begrenzte Kursgeschichte.
+- `boards.yml`: benannte Kurstafeln und deren Zuordnung.
+
+Spieler- und Historiedaten werden asynchron mit atomarem Dateiaustausch geschrieben; beim ordentlichen Stoppen wird ausstehende Speicherung abgeschlossen. Defekte Dateien werden erhalten bzw. gesichert und im Log gemeldet. Diese Dateien sollten zusammen mit der Plugin-Konfiguration gesichert werden.
+
+## Entwicklung und Tests
+
+```sh
+mvn --batch-mode --no-transfer-progress clean verify
 ```
 
-## Befehle
+JUnit-Tests prüfen u. a. Cache, parallele Anfragen, ungültige Antworten, API-Limits, gespeicherte Daten, Alarmschwellen und virtuelle Guthaben. GitHub Actions führt dieselben Tests aus und stellt die fertige JAR bereit.
 
-| Befehl | Beschreibung |
-| --- | --- |
-| `/btc` | Zeigt den aktuellen Bitcoin-Preis an |
-| `/btc help` | Zeigt Hilfe und erklärt alle Befehle |
-| `/btc interval <1\|5\|10\|30\|60>` | Ändert das Intervall für automatische Updates (in Minuten) |
-| `/btc currency <EUR\|USD\|BOTH>` | Ändert die Währung für die Preisanzeige |
-| `/btc refresh` | Aktualisiert den Bitcoin-Preis sofort |
-| `/btc on` | Aktiviert Bitcoin-Preis Benachrichtigungen für dich selbst |
-| `/btc off` | Deaktiviert Bitcoin-Preis Benachrichtigungen für dich selbst |
-| `/btc on all` | Aktiviert Bitcoin-Preis Benachrichtigungen für alle Spieler (Admin-Berechtigung erforderlich) |
-| `/btc off all` | Deaktiviert Bitcoin-Preis Benachrichtigungen für alle Spieler (Admin-Berechtigung erforderlich) |
-| `/btceur` | Zeigt den aktuellen Bitcoin-Preis in Euro an |
-| `/btcusd` | Zeigt den aktuellen Bitcoin-Preis in US-Dollar an |
+Ein zusätzlicher Test-Plugin unter `src/test/paper` prüft Befehle und echte TextDisplay-Entities auf Paper einschließlich Neustart. Dieser Test-Plugin gehört nicht auf einen Produktionsserver und wird nicht in die BitcoinPrice-JAR gepackt. Er benötigt einen lokalen Paper-Testserver und verwendet die Ports 25586/28761 auf 127.0.0.1. Der Testplayer ist ein Proxy; die visuelle Darstellung mit einem echten Minecraft-Client sollte ergänzend geprüft werden.
 
-## Berechtigungen
+Unter Windows führt `scripts/paper-smoke.ps1` beide Serverphasen aus. Parameter: `-JavaHome`, `-MavenCommand`, `-PaperJar` und `-Workspace` (frisches Testverzeichnis außerhalb des Repositories). Das Verzeichnis benötigt eine bereits akzeptierte `eula.txt`; alternativ kann nach Lesen der Minecraft-EULA `-EulaAccepted` angegeben werden. Mit `-RuntimeCache` lässt sich ein vorhandener Paper-Laufzeitcache wiederverwenden.
 
-| Berechtigung | Beschreibung |
-| --- | --- |
-| `bitcoinprice.admin` | Erlaubt die Verwendung der Befehle `/btc on all` und `/btc off all` |
+## Quellen und Lizenz
 
-## Fehlerbehebung
+[CoinGecko einfache Preise](https://docs.coingecko.com/demo/reference/simple-price), [CoinGecko unterstützte Währungen](https://docs.coingecko.com/reference/simple-supported-currencies), [CoinGecko Rate Limits](https://docs.coingecko.com/docs/errors-and-rate-limits), [Paper Scheduler](https://docs.papermc.io/paper/dev/scheduler/).
 
-### API-Fehler
-
-Wenn du Fehler wie "Fehler beim Abrufen des Bitcoin-Preises" erhältst:
-1. Überprüfe deine Internetverbindung
-2. Bei HTTP 429 greift die CoinGecko-Ratenbegrenzung; warte und reduziere die Anzahl der Anfragen.
-3. Bei anhaltenden Problemen erhöhe den `timeout`-Wert in der Konfiguration
-
-## Geplante Funktionen
-
-- Unterstützung für weitere Kryptowährungen
-- Benachrichtigung bei signifikanten Preisänderungen
-- Preisdiagramme über die Zeit
-- Konfigurierbare Farbgestaltung
-
-## Entwicklung
-
-### Voraussetzungen
-
-- Java 25 JDK
-- Maven
-
-### Kompilieren
-
-```bash
-mvn clean verify
-```
-
-Die kompilierte JAR-Datei findest du dann im `target`-Ordner.
-
-## Lizenz
-
-Dieses Projekt ist unter der MIT-Lizenz lizenziert. Siehe die [LICENSE](LICENSE)-Datei für Details.
-
-## Autor
-
-**Martin Geltl** ([@MartinGeltl21](https://github.com/MartinGeltl21))
-
-## Mitwirken
-
-Beiträge sind immer willkommen! Bitte folge diesen Schritten:
-
-1. Forke das Repository
-2. Erstelle einen Feature-Branch (`git checkout -b feature/AmazingFeature`)
-3. Committe deine Änderungen (`git commit -m 'Add some AmazingFeature'`)
-4. Pushe den Branch (`git push origin feature/AmazingFeature`)
-5. Eröffne einen Pull Request
-
-## Danksagungen
-
-- [CoinGecko](https://www.coingecko.com/) für die öffentliche Kryptowährung-API
-- Alle Mitwirkenden und Tester
+MIT-Lizenz; siehe [LICENSE](LICENSE). Gepflegt von den BitcoinPrice contributors.
