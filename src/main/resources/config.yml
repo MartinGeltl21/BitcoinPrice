@@ -1,5 +1,5 @@
-# BitcoinPrice 2.1 — bestehende Konfigurationen bleiben lesbar.
-# Globale Chat-Ausgabe: 1, 5, 10, 30 oder 60 Minuten.
+# BitcoinPrice 2.2 — bestehende Konfigurationen bleiben lesbar.
+# Chat-Intervall und DEFAULT für persönliche Actionbar-Intervalle: 1, 5, 10, 30 oder 60 Minuten.
 price-interval: 10
 # EUR, USD, GBP, CHF, CAD, AUD, JPY, CNY, INR oder BOTH (EUR + USD).
 price-currency: EUR
@@ -8,8 +8,9 @@ broadcasts-enabled: true
 locale: de-DE
 # Überwacht nur aktive Actionbars/Alarme/Kurstafeln, ohne jeden Spieler abzufragen.
 monitor-seconds: 60
-# Nur Bildschirmanzeige aus dem Cache; erzeugt keine HTTP-Anfragen.
-actionbar-seconds: 5
+# Actionbar: /btc display actionbar continuous oder interval [Minuten|DEFAULT].
+# Dauerhafte Anzeige wird jede Sekunde aus dem Cache erneuert (keine HTTP-Anfragen).
+# Der frühere Schlüssel actionbar-seconds wird ignoriert.
 history-hours: 168
 alert-cooldown-seconds: 300
 api:

@@ -5,6 +5,27 @@ Alle wichtigen Änderungen am BitcoinPrice-Plugin werden in dieser Datei dokumen
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-10-04
+
+### Hinzugefügt
+- Actionbar-Modi `continuous` und `interval`: dauerhaft sichtbar oder kurz im gewählten Minutenintervall.
+- Persönliches Actionbar-Intervall von 1, 5, 10, 30 oder 60 Minuten; `DEFAULT` übernimmt das globale Intervall.
+- OP-/Admin-Steuerung der Actionbar-Modi und persönlichen Intervalle über `/btc player <Name|UUID> display actionbar ...`.
+- `/btc status` zeigt Cache, Anbieter-Datenalter, API-Wartezeit und eine laufende Abfrage, ohne eine neue HTTP-Anfrage auszulösen.
+
+### Geändert
+- Dauerhafte Actionbars werden jede Sekunde aus dem Cache erneuert, ohne zusätzliche HTTP-Abfragen und ohne die bisherigen Fünf-Sekunden-Lücken.
+- Actionbars im Intervallmodus folgen ihrer eigenen Uhr; API-Aktualisierungen und manuelle Refreshes lösen keine zusätzliche Intervallanzeige aus.
+- Die erste aktive Intervall-Actionbar erscheint sofort; spätere Anzeigen folgen dem gewählten Abstand mit der normalen Minecraft-Ausblendung. Ohne Minutenargument bleibt das gespeicherte persönliche Intervall erhalten.
+- Ein globaler Intervallwechsel ändert das Chat-Intervall und den Actionbar-Standard, ohne ausdrücklich gewählte persönliche Intervalle zurückzusetzen.
+- Gespeicherte ältere Spielerpräferenzen erhalten automatisch den Modus `continuous`; der alte Konfigurationsschlüssel `actionbar-seconds` wird ignoriert.
+- Hilfetexte, Einstellungsanzeige, Dokumentation und Build-Artefakte für Version 2.2.0 aktualisiert.
+- Einstellungen lösen `DEFAULT` zur wirksamen Währung und Sprache auf und zeigen, ob die automatische Anzeige aktiv ist. Blockierte Anzeigen nennen den benötigten Aktivierungsbefehl.
+
+### Fehler behoben
+- `/btc refresh` bestätigt keine erfolgreiche Aktualisierung, wenn nur ein veralteter Ersatzkurs verfügbar ist.
+- Frische-/Veraltet-Kennzeichnungen berücksichtigen das Datenalter beim tatsächlichen Anzeigen, auch nach verzögerten Rückmeldungen.
+
 ## [2.1.1] - 2026-10-04
 
 - Vollständige, gemeinsame Hilfeseiten für `/btc help [Seite]` und `/btchelp [Seite]` mit eindeutigen Befehlen und Navigation.

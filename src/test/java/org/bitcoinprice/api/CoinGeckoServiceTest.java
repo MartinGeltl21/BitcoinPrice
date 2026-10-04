@@ -66,12 +66,63 @@ class CoinGeckoServiceTest {
         try (CoinGeckoService service = new CoinGeckoService(settings(url(server), 2000), sample -> {}, LOG, Clock.fixed(NOW, ZoneOffset.UTC))) {
             CompletableFuture<PriceQuote> first = service.fetchBitcoinPrice();
             assertTrue(entered.await(2, TimeUnit.SECONDS));
+            var pendingStatus = service.status();
+            assertTrue(pendingStatus.requestInFlight());
+            assertTrue(pendingStatus.quote().isEmpty());
+            assertEquals(0, pendingStatus.retryAfterSeconds());
+            assertEquals(1, requests.get());
             CompletableFuture<PriceQuote> second = service.fetchBitcoinPrice();
             first.cancel(true); release.countDown();
             assertFalse(second.get(3, TimeUnit.SECONDS).stale());
             for (int i = 0; i < 10; i++) assertFalse(service.fetchBitcoinPrice().get(1, TimeUnit.SECONDS).stale());
             assertEquals(1, requests.get());
         } finally { release.countDown(); server.stop(0); }
+    }
+
+    @Test void statusIsReadOnlyAndTracksCacheRetryAndExpiry() throws Exception {
+        MutableClock clock = new MutableClock(NOW);
+        AtomicInteger requests = new AtomicInteger(), responseCode = new AtomicInteger(200);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            byte[] bytes = body("90000", "100000", clock.instant()).getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Retry-After", "120");
+            exchange.sendResponseHeaders(responseCode.get(), bytes.length);
+            exchange.getResponseBody().write(bytes); exchange.close();
+        });
+        server.start();
+        try (CoinGeckoService service = new CoinGeckoService(settings(url(server), 1000), sample -> {}, LOG, clock)) {
+            for (int i = 0; i < 5; i++) {
+                var status = service.status();
+                assertTrue(status.quote().isEmpty());
+                assertFalse(status.requestInFlight());
+                assertEquals(0, status.retryAfterSeconds());
+            }
+            assertEquals(0, requests.get(), "Status must not initialize the cache through HTTP");
+            service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS);
+            var fresh = service.status();
+            assertFalse(fresh.quote().orElseThrow().stale());
+            assertFalse(fresh.requestInFlight());
+            assertEquals(0, fresh.retryAfterSeconds());
+            assertEquals(1, requests.get());
+
+            clock.advance(60); responseCode.set(429);
+            assertTrue(service.status().quote().orElseThrow().stale());
+            assertEquals(1, requests.get(), "Inspecting an aged cache must not refresh it");
+            assertTrue(service.fetchBitcoinPrice().get(2, TimeUnit.SECONDS).stale());
+            var degraded = service.status();
+            assertTrue(degraded.quote().orElseThrow().stale());
+            assertFalse(degraded.requestInFlight());
+            assertEquals(120, degraded.retryAfterSeconds());
+            clock.advance(30);
+            assertEquals(90, service.status().retryAfterSeconds());
+            clock.advance(91);
+            assertEquals(0, service.status().retryAfterSeconds());
+            assertEquals(2, requests.get(), "Status must not retry automatically after the cooldown");
+            clock.advance(901);
+            assertTrue(service.status().quote().isEmpty());
+            assertEquals(2, requests.get(), "Expired cache inspection must remain read-only");
+        } finally { server.stop(0); }
     }
 
     @Test void retryAfterAndForcedCooldownCannotBeBypassedAndFallbackExpires() throws Exception {
